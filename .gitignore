@@ -1,6 +1,6 @@
 # Build trees
 build/
-sim/build/
+simulate/build/
 
 # ESP-IDF local configuration, generated from sdkconfig.defaults
 sdkconfig

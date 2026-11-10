@@ -19,9 +19,9 @@
 
 idf_component_register(
     SRCS "main.cpp"
-         "${CMAKE_SOURCE_DIR}/src/Coprocessor.cpp"
-         "${CMAKE_SOURCE_DIR}/src/drivers/display/nv3007_panel.cpp"
-         "${CMAKE_SOURCE_DIR}/src/drivers/display/lvgl_display.cpp"
-         "${CMAKE_SOURCE_DIR}/src/ui/menu.cpp"
-    INCLUDE_DIRS "." "${CMAKE_SOURCE_DIR}/src"
+         "Coprocessor.cpp"
+         "drivers/display/nv3007_panel.cpp"
+         "drivers/display/lvgl_display.cpp"
+         "ui/menu.cpp"
+    INCLUDE_DIRS "."
     REQUIRES lvgl esp_timer esp_driver_spi esp_driver_gpio)

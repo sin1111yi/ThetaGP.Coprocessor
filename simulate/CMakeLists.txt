@@ -21,7 +21,7 @@
 # source the firmware links, and the frame lands in a file stream.py serves.
 cmake_minimum_required(VERSION 3.16)
 
-project(thetagp_sim C CXX)
+project(thetagp_simulate C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
@@ -34,21 +34,21 @@ endif()
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../components/lvgl
                  ${CMAKE_CURRENT_BINARY_DIR}/lvgl)
 
-add_executable(sim
+add_executable(simulate
   main_sim.cpp
-  ../src/ui/menu.cpp
+  ../main/ui/menu.cpp
 )
 
 # The board's GPIO calls are answered by the stubs under include/, and the
 # firmware's headers are reached the way they are inside the tree: from src/.
-target_include_directories(sim PRIVATE
+target_include_directories(simulate PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/../src
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
 )
 
 target_compile_definitions(lvgl PUBLIC
   LV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/lv_conf.h")
-target_compile_definitions(sim PRIVATE
+target_compile_definitions(simulate PRIVATE
   LV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/lv_conf.h")
 
-target_link_libraries(sim PRIVATE lvgl m)
+target_link_libraries(simulate PRIVATE lvgl m)
