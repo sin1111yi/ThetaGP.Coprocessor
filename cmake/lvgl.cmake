@@ -36,6 +36,14 @@ set(THETAGP_LVGL_TAG "85aa60d18b3d5e5588d7b247abf90198f07c8a63" CACHE STRING
 function(thetagp_lvgl dir)
   set(THETAGP_LVGL_DIR "${dir}" PARENT_SCOPE)
 
+  # A source tree that is already there is used as it is, with or without a
+  # .git: this is how an archive unpacked into lib/ is honoured, and it needs
+  # no network at all.
+  if(EXISTS "${dir}/CMakeLists.txt" AND NOT EXISTS "${dir}/.git")
+    message(STATUS "LVGL: using the source tree in ${dir}")
+    return()
+  endif()
+
   find_package(Git REQUIRED)
 
   # A checkout already on the pinned commit is used as it is, and one on

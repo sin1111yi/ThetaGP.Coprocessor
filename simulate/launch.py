@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Build the host build of the menu and run it.
 
-One entry point on every platform: it reads what this machine is, finds CMake,
-a compiler and SDL2, builds `simulate/`, then runs it. A machine without the
-toolchain is told what is missing rather than handed a compiler error, because
-this is the script people run first.
+One entry point on every platform: it reads what this machine is, finds CMake
+and a compiler, builds `simulate/` (fetching SDL2 when the machine has none),
+then runs it. A machine without the toolchain is told what is missing rather
+than handed a compiler error, because this is the script people run first.
 """
 
 import argparse
@@ -33,9 +33,22 @@ def system():
 
 
 def compiler():
+    """Compiler overrides for CMake, and how to describe them."""
     if sys.platform.startswith("win"):
-        return "MSVC (CMake default)"
-    return find(["cc", "gcc", "clang"]) or "CMake default"
+        # The clang that CMake picks up on Windows has no Windows SDK to
+        # link against; zig carries its own C runtime and headers, which
+        # keeps this build working on a machine without MSVC.
+        zig = find(["zig"])
+        if zig and find(["cl"]) is None:
+            flags = ["-DCMAKE_C_COMPILER=" + zig,
+                     "-DCMAKE_C_COMPILER_ARG1=cc",
+                     "-DCMAKE_CXX_COMPILER=" + zig,
+                     "-DCMAKE_CXX_COMPILER_ARG1=c++",
+                     "-DCMAKE_ASM_COMPILER=" + zig,
+                     "-DCMAKE_ASM_COMPILER_ARG1=cc"]
+            return flags, "zig cc/c++"
+        return [], "MSVC (CMake default)"
+    return [], find(["cc", "gcc", "clang"]) or "CMake default"
 
 
 def generator():
@@ -56,20 +69,6 @@ def binary(multiconfig):
     return os.path.join(BUILD, name)
 
 
-def have_sdl2():
-    """SDL2 as a CMake package, as pkg-config, or not at all."""
-    if find(["sdl2-config"]):
-        return True
-    probe = subprocess.run(["pkg-config", "--exists", "sdl2"],
-                           stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL)
-    if probe.returncode == 0:
-        return True
-    # A Windows install usually unpacks the development package and is pointed
-    # at it with SDL2_DIR, which CMake looks up itself.
-    return bool(os.environ.get("SDL2_DIR"))
-
-
 def run(command):
     print("simulate: " + " ".join(command), flush=True)
     return subprocess.call(command)
@@ -81,6 +80,10 @@ def main():
     parser.add_argument("--clean", action="store_true",
                         help="throw the build tree away first")
     args, rest = parser.parse_known_args()
+    # Everything after the separator goes to the binary, which does not
+    # expect the separator itself.
+    if rest and rest[0] == "--":
+        rest = rest[1:]
 
     cmake = find(["cmake"])
     if cmake is None:
@@ -88,26 +91,23 @@ def main():
               "https://cmake.org/download/")
         return 1
 
-    if not have_sdl2():
-        print("simulate: SDL2 is missing. Install its development package "
-              "(libsdl2-dev, sdl2, brew install sdl2), or point SDL2_DIR at an "
-              "unpacked SDL2 development tree.")
-        return 1
-
     flags, multiconfig = generator()
+    compiler_flags, compiler_name = compiler()
     print("simulate: %s %s, %s, %s" %
-          (system(), platform.machine() or "?", compiler(),
+          (system(), platform.machine() or "?", compiler_name,
            flags[1] if flags else "CMake default"), flush=True)
 
     if args.clean:
         shutil.rmtree(BUILD, ignore_errors=True)
 
     configure = [cmake, "-S", HERE, "-B", BUILD,
-                 "-DCMAKE_BUILD_TYPE=Release"] + flags
+                 "-DCMAKE_BUILD_TYPE=Release"] + flags + compiler_flags
     if run(configure) != 0:
         return 1
 
-    build = [cmake, "--build", BUILD, "--parallel"]
+    # The simulator is the only thing wanted: LVGL's examples and demos are
+    # separate targets and are not built.
+    build = [cmake, "--build", BUILD, "--target", "simulate", "--parallel"]
     if multiconfig:
         build += ["--config", "Release"]
     if run(build) != 0:

@@ -24,7 +24,7 @@
 // its own; the window only blits it, so nothing about the firmware's drawing
 // changes when it runs on a desk.
 
-#include <SDL2/SDL.h>
+#include <SDL.h>
 
 #include <chrono>
 #include <cstdint>

@@ -1,5 +1,6 @@
-# Fetched at configure time (cmake/lvgl.cmake)
+# Fetched at configure time (cmake/lvgl.cmake, cmake/sdl2.cmake)
 lib/lvgl/
+lib/sdl2/
 
 # Build trees
 build/

@@ -36,15 +36,53 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/lvgl.cmake)
 thetagp_lvgl(${CMAKE_CURRENT_SOURCE_DIR}/../lib/lvgl)
 add_subdirectory(${THETAGP_LVGL_DIR} ${CMAKE_CURRENT_BINARY_DIR}/lvgl)
 
-# The window the panel is blitted into. SDL2 ships as a CMake package on most
-# systems and as a pkg-config module on the rest.
-find_package(SDL2 QUIET)
-if(SDL2_FOUND AND TARGET SDL2::SDL2)
-  set(THETAGP_SDL2 SDL2::SDL2)
+# The window the panel is blitted into. A checkout under lib/ is what was put
+# there by hand and wins over anything installed on the machine; otherwise a
+# system SDL2 is used when there is one, and fetched into lib/ only when there
+# is not: see cmake/sdl2.cmake.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/sdl2.cmake)
+
+set(THETAGP_SDL2_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../lib/sdl2)
+if(EXISTS "${THETAGP_SDL2_DIR}/CMakeLists.txt"
+   AND EXISTS "${THETAGP_SDL2_DIR}/include/SDL.h")
+  set(THETAGP_SDL2_BUNDLED TRUE)
 else()
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
-  set(THETAGP_SDL2 PkgConfig::SDL2)
+  set(THETAGP_SDL2_BUNDLED FALSE)
+  find_package(SDL2 QUIET)
+  if(SDL2_FOUND AND TARGET SDL2::SDL2)
+    set(THETAGP_SDL2 SDL2::SDL2)
+  else()
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+      pkg_check_modules(SDL2 QUIET IMPORTED_TARGET sdl2)
+    endif()
+
+    if(TARGET PkgConfig::SDL2)
+      set(THETAGP_SDL2 PkgConfig::SDL2)
+    else()
+      thetagp_sdl2(${THETAGP_SDL2_DIR})
+      set(THETAGP_SDL2_BUNDLED TRUE)
+    endif()
+  endif()
+endif()
+
+if(THETAGP_SDL2_BUNDLED)
+  # The simulator has no use for a shared object or the test programs, and
+  # wants its own main (SDL_MAIN_HANDLED below).
+  set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+  set(SDL_STATIC ON CACHE BOOL "" FORCE)
+  set(SDL_TEST OFF CACHE BOOL "" FORCE)
+  set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+  set(SDL2_DISABLE_SDL2MAIN ON CACHE BOOL "" FORCE)
+  set(SDL2_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+
+  # SDL2 2.32.10 still declares CMake 3.0, which CMake 4 refuses to
+  # configure unless the floor is raised.
+  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
+  add_subdirectory(${THETAGP_SDL2_DIR} ${CMAKE_CURRENT_BINARY_DIR}/sdl2)
+  # The alias also points at the static library when no shared one is built.
+  set(THETAGP_SDL2 SDL2::SDL2)
 endif()
 
 add_executable(simulate
@@ -63,7 +101,8 @@ target_include_directories(simulate PRIVATE
 target_compile_definitions(lvgl PUBLIC
   LV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/lv_conf.h")
 target_compile_definitions(simulate PRIVATE
-  LV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/lv_conf.h")
+  LV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/lv_conf.h"
+  SDL_MAIN_HANDLED)
 
 target_link_libraries(simulate PRIVATE lvgl ${THETAGP_SDL2})
 if(NOT MSVC)
