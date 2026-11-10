@@ -29,18 +29,24 @@
 #include "driver/spi_master.h"
 
 // The panel the coprocessor drives.
-#define LCD_H_RES 156
-#define LCD_V_RES 428
+#define LCD_H_RES      156
+#define LCD_V_RES      428
 
-#define LCD_SPI_HOST SPI2_HOST
-#define LCD_SPI_HZ (60 * 1000 * 1000)
+#define LCD_SPI_HOST   SPI2_HOST
+#define LCD_SPI_HZ     (60 * 1000 * 1000)
 
-#define PIN_LCD_BLK GPIO_NUM_13
-#define PIN_LCD_CS GPIO_NUM_10
-#define PIN_LCD_DC GPIO_NUM_9
-#define PIN_LCD_RST GPIO_NUM_14
-#define PIN_LCD_MOSI GPIO_NUM_11
-#define PIN_LCD_SCK GPIO_NUM_12
+#define PIN_LCD_BLK    GPIO_NUM_13
+#define PIN_LCD_CS     GPIO_NUM_10
+#define PIN_LCD_DC     GPIO_NUM_9
+#define PIN_LCD_RST    GPIO_NUM_14
+#define PIN_LCD_MOSI   GPIO_NUM_11
+#define PIN_LCD_SCK    GPIO_NUM_12
 
 // The board's BOOT button, used to walk the menu until the link is up.
-#define PIN_BUTTON GPIO_NUM_0
+#define PIN_BUTTON     GPIO_NUM_0
+
+// The link to the main board: UART4 on its side, a plain UART here.
+#define PIN_LINK_TX    GPIO_NUM_4 // to PC11 (UART4_RX)
+#define PIN_LINK_RX    GPIO_NUM_5 // from PC10 (UART4_TX)
+#define PIN_LINK_READY GPIO_NUM_6 // to PC12
+#define LINK_BAUD      4000000
