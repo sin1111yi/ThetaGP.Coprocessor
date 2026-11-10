@@ -1,48 +1,70 @@
-#include "menu.h"
+/**
+ * This file is a part of ThetaGP.
+ *
+ * ThetaGP is free software: you can redistribute it
+ * and/or modify it under the terms of the GNU General
+ * Public License as published by the Free Software
+ * Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * ThetaGP is distributed in the hope that it will be
+ * useful, but WITHOUT ANY WARRANTY; without even the
+ * implied warranty of MERCHANTABILITY or FITNESS FOR A
+ * PARTICULAR PURPOSE. See the GNU General Public License
+ * for more details.
+ *
+ * You should have received a copy of the GNU General Public
+ * License along with this program.
+ *
+ * If not, see <https://www.gnu.org/licenses/>.
+ */
 
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
+#include "ui/menu.h"
 
-#include "board.h"
+#include <cmath>
+#include <cstdio>
+
+#include "build_info.h"
+#include "conf/board.h"
+#include "ui/theme.h"
+
 #include "driver/gpio.h"
 
-#define COLOR_BG          0x0A0E14
-#define COLOR_SURFACE     0x121821
-#define COLOR_SURFACE_HI  0x1B2431
-#define COLOR_BORDER      0x232E3C
-#define COLOR_TEXT        0xECF1F8
-#define COLOR_MUTED       0x7C8899
-#define COLOR_ACCENT      0x3DDC97
-#define COLOR_ACCENT_DIM  0x1E3B32
+namespace ThetaGP::Ui {
 
-static menu_model_t s_model = {
-    .board = "ThetaGP-H743",
-    .profile_name = "Main",
-    .profile_id = 1,
-    .profile_count = 2,
-    .report_hz = 8000,
-    .link = false,
+// The device the panel speaks for. The protocol is not wired in yet, so the
+// firmware fills it with the values the display was built against.
+static Model s_model;
+
+const Model &model() {
+  return s_model;
+}
+
+namespace Menu {
+
+using Theme::colour;
+using Theme::fill;
+using Theme::surface;
+using Theme::text;
+
+struct Page;
+
+struct Item {
+  const char *label;
+  const Page *page;
 };
 
-typedef struct MenuPage MenuPage;
-
-typedef struct {
-  const char *label;
-  const MenuPage *page;
-} MenuItem;
-
-struct MenuPage {
+struct Page {
   const char *title;
   // Draws the page's body; a page without one lists its items.
   void (*draw)(lv_obj_t *parent);
-  const MenuItem *items;
+  const Item *items;
   uint8_t count;
 };
 
 static lv_obj_t *s_root;
-static const MenuPage *s_page;
-static const MenuPage *s_stack[6];
+static const Page *s_page;
+static const Page *s_stack[6];
 static uint8_t s_depth;
 static uint8_t s_selected;
 
@@ -70,67 +92,31 @@ static lv_obj_t *s_arc_title;
 static lv_obj_t *s_arc_index;
 static uint8_t s_drawn = 0xFF;
 
-static lv_color_t c(uint32_t rgb) {
-  return lv_color_hex(rgb);
-}
-
-// A flat fill: one colour per object, so a frame is a copy rather than a
-// blend.
-static void fill(lv_obj_t *obj, uint32_t colour) {
-  lv_obj_set_style_bg_color(obj, c(colour), 0);
-  lv_obj_set_style_bg_grad_dir(obj, LV_GRAD_DIR_NONE, 0);
-  lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
-}
-
-static lv_obj_t *surface(lv_obj_t *parent, int x, int y, int w, int h) {
-  lv_obj_t *obj = lv_obj_create(parent);
-  lv_obj_remove_style_all(obj);
-  lv_obj_set_pos(obj, x, y);
-  lv_obj_set_size(obj, w, h);
-  fill(obj, COLOR_SURFACE);
-  lv_obj_set_style_radius(obj, 8, 0);
-  lv_obj_set_style_border_color(obj, c(COLOR_BORDER), 0);
-  lv_obj_set_style_border_width(obj, 1, 0);
-  return obj;
-}
-
-static lv_obj_t *text(lv_obj_t *parent, const char *value, const lv_font_t *font,
-                      uint32_t colour, int x, int y, int w) {
-  lv_obj_t *label = lv_label_create(parent);
-  lv_label_set_text(label, value);
-  lv_obj_set_style_text_font(label, font, 0);
-  lv_obj_set_style_text_color(label, c(colour), 0);
-  lv_obj_set_pos(label, x, y);
-  lv_obj_set_width(label, w);
-  lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
-  return label;
-}
-
 // ── pages ──
 
 static void draw_status(lv_obj_t *parent) {
   lv_obj_t *profile = surface(parent, 8, 8, 198, 70);
-  text(profile, "PROFILE", &lv_font_montserrat_12, COLOR_MUTED, 10, 6, 90);
-  text(profile, s_model.profile_name, &lv_font_montserrat_20, COLOR_TEXT, 10, 22, 170);
+  text(profile, "PROFILE", &lv_font_montserrat_12, Theme::MUTED, 10, 6, 90);
+  text(profile, s_model.profile_name, &lv_font_montserrat_20, Theme::TEXT, 10, 22, 170);
 
   char body[32];
   snprintf(body, sizeof body, "profile %u of %u", (unsigned)s_model.profile_id,
            (unsigned)s_model.profile_count);
-  text(profile, body, &lv_font_montserrat_12, COLOR_MUTED, 10, 48, 170);
+  text(profile, body, &lv_font_montserrat_12, Theme::MUTED, 10, 48, 170);
 
   lv_obj_t *link = surface(parent, 214, 8, 198, 70);
-  text(link, "LINK", &lv_font_montserrat_12, COLOR_MUTED, 10, 6, 90);
+  text(link, "LINK", &lv_font_montserrat_12, Theme::MUTED, 10, 6, 90);
 
   lv_obj_t *dot = lv_obj_create(link);
   lv_obj_remove_style_all(dot);
   lv_obj_set_pos(dot, 10, 26);
   lv_obj_set_size(dot, 8, 8);
   lv_obj_set_style_radius(dot, 4, 0);
-  lv_obj_set_style_bg_color(dot, c(s_model.link ? COLOR_ACCENT : COLOR_MUTED), 0);
+  lv_obj_set_style_bg_color(dot, colour(s_model.link ? Theme::ACCENT : Theme::MUTED), 0);
   lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
 
   text(link, s_model.link ? "live" : "waiting", &lv_font_montserrat_14,
-       s_model.link ? COLOR_TEXT : COLOR_MUTED, 24, 21, 80);
+       s_model.link ? Theme::TEXT : Theme::MUTED, 24, 21, 80);
 
   char rate[24];
   if (s_model.report_hz % 1000 == 0) {
@@ -138,7 +124,7 @@ static void draw_status(lv_obj_t *parent) {
   } else {
     snprintf(rate, sizeof rate, "%u Hz", (unsigned)s_model.report_hz);
   }
-  text(link, rate, &lv_font_montserrat_14, COLOR_ACCENT, 10, 46, 170);
+  text(link, rate, &lv_font_montserrat_14, Theme::ACCENT, 10, 46, 170);
 }
 
 static void draw_keymap(lv_obj_t *parent) {
@@ -155,14 +141,14 @@ static void draw_keymap(lv_obj_t *parent) {
                             10 + row * (cell_h + gap), cell_w, cell_h);
     lv_obj_set_style_radius(key, 5, 0);
     if (i == 0) {
-      fill(key, COLOR_SURFACE_HI);
-      lv_obj_set_style_border_color(key, c(COLOR_ACCENT), 0);
+      fill(key, Theme::SURFACE_HI);
+      lv_obj_set_style_border_color(key, colour(Theme::ACCENT), 0);
     }
 
     lv_obj_t *name = lv_label_create(key);
     lv_label_set_text(name, keys[i]);
     lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(name, c(i == 0 ? COLOR_ACCENT : COLOR_TEXT), 0);
+    lv_obj_set_style_text_color(name, colour(i == 0 ? Theme::ACCENT : Theme::TEXT), 0);
     lv_obj_center(name);
   }
 }
@@ -174,15 +160,15 @@ static void draw_profiles(lv_obj_t *parent) {
     lv_obj_set_style_radius(row, 5, 0);
     const bool active = (uint32_t)i == s_model.profile_id;
     if (active) {
-      fill(row, COLOR_SURFACE_HI);
-      lv_obj_set_style_border_color(row, c(COLOR_ACCENT), 0);
+      fill(row, Theme::SURFACE_HI);
+      lv_obj_set_style_border_color(row, colour(Theme::ACCENT), 0);
     } else {
       lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
       lv_obj_set_style_border_width(row, 0, 0);
     }
 
     text(row, names[i], &lv_font_montserrat_14,
-         active ? COLOR_ACCENT : COLOR_TEXT, 10, 1, 300);
+         active ? Theme::ACCENT : Theme::TEXT, 10, 1, 300);
   }
 }
 
@@ -194,31 +180,36 @@ static void draw_config(lv_obj_t *parent) {
     lv_obj_set_style_radius(row, 5, 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(row, 0, 0);
-    text(row, keys[i], &lv_font_montserrat_12, COLOR_TEXT, 10, 1, 300);
+    text(row, keys[i], &lv_font_montserrat_12, Theme::TEXT, 10, 1, 300);
   }
 }
 
 static void draw_about(lv_obj_t *parent) {
-  static const char *lines[3] = {"ThetaGP coprocessor", "ESP32-S3 + NV3007",
-                                 "schema ThetaGP.PB"};
-  text(parent, lines[0], &lv_font_montserrat_14, COLOR_ACCENT, 10, 10, 400);
-  text(parent, lines[1], &lv_font_montserrat_12, COLOR_MUTED, 10, 34, 400);
-  text(parent, lines[2], &lv_font_montserrat_12, COLOR_MUTED, 10, 54, 400);
+  char version[40];
+  snprintf(version, sizeof version, "firmware %s", BuildInfo::VERSION);
+
+  text(parent, "ThetaGP coprocessor", &lv_font_montserrat_14, Theme::ACCENT, 10,
+       8, 400);
+  text(parent, version, &lv_font_montserrat_12, Theme::TEXT, 10, 30, 400);
+  text(parent, "ESP32-S3 + NV3007", &lv_font_montserrat_12, Theme::MUTED, 10,
+       50, 400);
+  text(parent, "schema ThetaGP.PB", &lv_font_montserrat_12, Theme::MUTED, 10,
+       68, 400);
 }
 
-static const MenuPage PAGE_STATUS = {"Status", draw_status, NULL, 0};
-static const MenuPage PAGE_PROFILES = {"Profiles", draw_profiles, NULL, 0};
-static const MenuPage PAGE_KEYMAP = {"Keymap", draw_keymap, NULL, 0};
-static const MenuPage PAGE_CONFIG = {"Config", draw_config, NULL, 0};
-static const MenuPage PAGE_ABOUT = {"About", draw_about, NULL, 0};
+static const Page PAGE_STATUS = {"Status", draw_status, NULL, 0};
+static const Page PAGE_PROFILES = {"Profiles", draw_profiles, NULL, 0};
+static const Page PAGE_KEYMAP = {"Keymap", draw_keymap, NULL, 0};
+static const Page PAGE_CONFIG = {"Config", draw_config, NULL, 0};
+static const Page PAGE_ABOUT = {"About", draw_about, NULL, 0};
 
-static const MenuItem MAIN_ITEMS[] = {
+static const Item MAIN_ITEMS[] = {
     {"Status", &PAGE_STATUS},   {"Profiles", &PAGE_PROFILES},
     {"Keymap", &PAGE_KEYMAP},   {"Config", &PAGE_CONFIG},
     {"About", &PAGE_ABOUT},
 };
 
-static const MenuPage PAGE_MAIN = {"Menu", NULL, MAIN_ITEMS, 5};
+static const Page PAGE_MAIN = {"Menu", NULL, MAIN_ITEMS, 5};
 
 // ── the main menu ──
 
@@ -252,13 +243,13 @@ static void list_update(bool animate) {
       continue;
     }
     const bool on = i == s_selected;
-    fill(s_cards[i], on ? COLOR_SURFACE_HI : COLOR_SURFACE);
+    fill(s_cards[i], on ? Theme::SURFACE_HI : Theme::SURFACE);
     lv_obj_set_style_border_color(
-        s_cards[i], c(on ? COLOR_ACCENT : COLOR_BORDER), 0);
+        s_cards[i], colour(on ? Theme::ACCENT : Theme::BORDER), 0);
     lv_obj_set_style_text_color(s_card_titles[i],
-                                c(on ? COLOR_TEXT : COLOR_MUTED), 0);
+                                colour(on ? Theme::TEXT : Theme::MUTED), 0);
     lv_obj_set_style_text_color(s_card_numbers[i],
-                                c(on ? COLOR_ACCENT : COLOR_MUTED), 0);
+                                colour(on ? Theme::ACCENT : Theme::MUTED), 0);
   }
 
   if (s_arc != NULL) {
@@ -296,10 +287,10 @@ static void list_build(lv_obj_t *parent) {
     char number[8];
     snprintf(number, sizeof number, "%02d", i + 1);
     s_card_numbers[i] =
-        text(card, number, &lv_font_montserrat_12, COLOR_ACCENT, 10, 7, 30);
+        text(card, number, &lv_font_montserrat_12, Theme::ACCENT, 10, 7, 30);
     s_card_titles[i] = text(card, titles[i], &lv_font_montserrat_14,
-                            COLOR_TEXT, 10, 23, CARD_W - 20);
-    text(card, subs[i], &lv_font_montserrat_12, COLOR_MUTED, 10, 44,
+                            Theme::TEXT, 10, 23, CARD_W - 20);
+    text(card, subs[i], &lv_font_montserrat_12, Theme::MUTED, 10, 44,
          CARD_W - 20);
     s_cards[i] = card;
   }
@@ -307,11 +298,11 @@ static void list_build(lv_obj_t *parent) {
 
 // A label centred inside the arc.
 static lv_obj_t *caption(lv_obj_t *parent, const char *value,
-                         const lv_font_t *font, uint32_t colour, int y) {
+                         const lv_font_t *font, uint32_t rgb, int y) {
   lv_obj_t *label = lv_label_create(parent);
   lv_label_set_text(label, value);
   lv_obj_set_style_text_font(label, font, 0);
-  lv_obj_set_style_text_color(label, c(colour), 0);
+  lv_obj_set_style_text_color(label, colour(rgb), 0);
   lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_pos(label, ARC_X, y);
   lv_obj_set_width(label, ARC_SIZE);
@@ -330,16 +321,16 @@ static void arc_build(lv_obj_t *parent) {
   lv_obj_set_style_bg_opa(s_arc, LV_OPA_TRANSP, LV_PART_MAIN);
   lv_obj_set_style_border_width(s_arc, 0, LV_PART_MAIN);
   lv_obj_set_style_arc_width(s_arc, 6, LV_PART_MAIN);
-  lv_obj_set_style_arc_color(s_arc, c(COLOR_BORDER), LV_PART_MAIN);
+  lv_obj_set_style_arc_color(s_arc, colour(Theme::BORDER), LV_PART_MAIN);
   lv_obj_set_style_arc_rounded(s_arc, false, LV_PART_MAIN);
 
   lv_obj_set_style_arc_width(s_arc, 6, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_color(s_arc, c(COLOR_ACCENT), LV_PART_INDICATOR);
+  lv_obj_set_style_arc_color(s_arc, colour(Theme::ACCENT), LV_PART_INDICATOR);
   lv_obj_set_style_arc_rounded(s_arc, false, LV_PART_INDICATOR);
 
   s_arc_title = caption(parent, MAIN_ITEMS[s_selected].label,
-                        &lv_font_montserrat_14, COLOR_TEXT, 48);
-  s_arc_index = caption(parent, "1/5", &lv_font_montserrat_12, COLOR_MUTED, 70);
+                        &lv_font_montserrat_14, Theme::TEXT, 48);
+  s_arc_index = caption(parent, "1/5", &lv_font_montserrat_12, Theme::MUTED, 70);
 }
 
 // ── rendering ──
@@ -365,17 +356,17 @@ static void render(void) {
   lv_obj_set_pos(mark, 10, 9);
   lv_obj_set_size(mark, 6, 6);
   lv_obj_set_style_radius(mark, 3, 0);
-  lv_obj_set_style_bg_color(mark, c(COLOR_ACCENT), 0);
+  lv_obj_set_style_bg_color(mark, colour(Theme::ACCENT), 0);
   lv_obj_set_style_bg_opa(mark, LV_OPA_COVER, 0);
 
-  text(s_root, "ThetaGP", &lv_font_montserrat_20, COLOR_TEXT, 22, 0, 200);
-  text(s_root, s_page->title, &lv_font_montserrat_12, COLOR_MUTED, 260, 6, 150);
+  text(s_root, "ThetaGP", &lv_font_montserrat_20, Theme::TEXT, 22, 0, 200);
+  text(s_root, s_page->title, &lv_font_montserrat_12, Theme::MUTED, 260, 6, 150);
 
   lv_obj_t *rule = lv_obj_create(s_root);
   lv_obj_remove_style_all(rule);
   lv_obj_set_pos(rule, 8, 25);
   lv_obj_set_size(rule, 404, 1);
-  lv_obj_set_style_bg_color(rule, c(COLOR_BORDER), 0);
+  lv_obj_set_style_bg_color(rule, colour(Theme::BORDER), 0);
   lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
 
   lv_obj_t *body = lv_obj_create(s_root);
@@ -383,7 +374,7 @@ static void render(void) {
   lv_obj_set_pos(body, 0, 27);
   lv_obj_set_size(body, 420, 96);
 
-  text(s_root, "BOOT  next   hold  open", &lv_font_montserrat_12, COLOR_MUTED,
+  text(s_root, "BOOT  next   hold  open", &lv_font_montserrat_12, Theme::MUTED,
        10, 124, 300);
 
   if (s_page->draw != NULL) {
@@ -399,7 +390,7 @@ static void render(void) {
     lv_obj_set_size(row, 404, 17);
     lv_obj_set_style_radius(row, 5, 0);
     if (chosen) {
-      fill(row, COLOR_SURFACE_HI);
+      fill(row, Theme::SURFACE_HI);
     } else {
       lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
     }
@@ -410,26 +401,26 @@ static void render(void) {
       lv_obj_set_pos(bar, 2, 2);
       lv_obj_set_size(bar, 3, 13);
       lv_obj_set_style_radius(bar, 2, 0);
-      lv_obj_set_style_bg_color(bar, c(COLOR_ACCENT), 0);
+      lv_obj_set_style_bg_color(bar, colour(Theme::ACCENT), 0);
       lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
     }
 
     text(row, s_page->items[i].label, &lv_font_montserrat_14,
-         chosen ? COLOR_TEXT : COLOR_MUTED, 12, 0, 340);
+         chosen ? Theme::TEXT : Theme::MUTED, 12, 0, 340);
     text(row, ">", &lv_font_montserrat_14,
-         chosen ? COLOR_ACCENT : COLOR_MUTED, 384, 0, 16);
+         chosen ? Theme::ACCENT : Theme::MUTED, 384, 0, 16);
   }
 }
 
 // ── navigation ──
 
-static void show(const MenuPage *page) {
+static void show(const Page *page) {
   s_page = page;
   s_selected = 0;
   render();
 }
 
-void menu_next(void) {
+void next() {
   if (s_page == &PAGE_MAIN) {
     s_selected = (uint8_t)((s_selected + 1) % CARD_COUNT);
     list_update(true);
@@ -442,9 +433,9 @@ void menu_next(void) {
   render();
 }
 
-void menu_enter(void) {
+void enter() {
   if (s_page == &PAGE_MAIN) {
-    const MenuItem *item = &MAIN_ITEMS[s_selected];
+    const Item *item = &MAIN_ITEMS[s_selected];
     if (item->page != NULL && s_depth < 6) {
       s_stack[s_depth++] = s_page;
       show(item->page);
@@ -453,7 +444,7 @@ void menu_enter(void) {
   }
 
   if (s_page->items != NULL && s_page->count != 0) {
-    const MenuItem *item = &s_page->items[s_selected];
+    const Item *item = &s_page->items[s_selected];
     if (item->page != NULL && s_depth < 6) {
       s_stack[s_depth++] = s_page;
       show(item->page);
@@ -461,14 +452,14 @@ void menu_enter(void) {
     }
     return;
   }
-  menu_back();
+  back();
 }
 
-void menu_back(void) {
+void back() {
   if (s_depth == 0) {
     return;
   }
-  const MenuPage *page = s_stack[--s_depth];
+  const Page *page = s_stack[--s_depth];
   show(page);
 }
 
@@ -485,17 +476,17 @@ static void button_timer(lv_timer_t *timer) {
     pressed_at = now;
   } else if (!held && down) {
     if (now - pressed_at >= 500) {
-      menu_enter();
+      enter();
     } else {
-      menu_next();
+      next();
     }
   }
   down = held;
 }
 
-void menu_init(void) {
+void init() {
   lv_obj_t *screen = lv_screen_active();
-  lv_obj_set_style_bg_color(screen, c(COLOR_BG), 0);
+  lv_obj_set_style_bg_color(screen, colour(Theme::BG), 0);
   lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 
   // The panel's usable window is 420x140, four columns in from either side
@@ -505,26 +496,25 @@ void menu_init(void) {
   lv_obj_set_pos(s_root, 4, 13);
   lv_obj_set_size(s_root, 420, 140);
 
-  gpio_config_t button = {
-      .pin_bit_mask = 1ULL << PIN_BUTTON,
-      .mode = GPIO_MODE_INPUT,
-      .pull_up_en = GPIO_PULLUP_ENABLE,
-  };
+  gpio_config_t button = {};
+  button.pin_bit_mask = 1ULL << PIN_BUTTON;
+  button.mode = GPIO_MODE_INPUT;
+  button.pull_up_en = GPIO_PULLUP_ENABLE;
   gpio_config(&button);
   lv_timer_create(button_timer, 20, NULL);
 
   show(&PAGE_MAIN);
 }
 
-void menu_set_link(bool up) {
+void setLink(bool up) {
   s_model.link = up;
 }
 
-void menu_set_report_hz(uint32_t hz) {
+void setReportHz(uint32_t hz) {
   s_model.report_hz = hz;
 }
 
-void menu_set_profile(uint32_t id, uint32_t count, const char *name) {
+void setProfile(uint32_t id, uint32_t count, const char *name) {
   s_model.profile_id = id;
   s_model.profile_count = count;
   if (name != NULL) {
@@ -532,6 +522,6 @@ void menu_set_profile(uint32_t id, uint32_t count, const char *name) {
   }
 }
 
-const menu_model_t *menu_model(void) {
-  return &s_model;
-}
+} // namespace Menu
+
+} // namespace ThetaGP::Ui

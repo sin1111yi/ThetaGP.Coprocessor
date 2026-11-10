@@ -1,8 +1,30 @@
-// A host build of the coprocessor's menu: the same menu.c the firmware links,
-// drawn into a shared frame buffer that stream.py serves as MJPEG. It exists
-// so the UI can be watched without the board.
+/**
+ * This file is a part of ThetaGP.
+ *
+ * ThetaGP is free software: you can redistribute it
+ * and/or modify it under the terms of the GNU General
+ * Public License as published by the Free Software
+ * Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * ThetaGP is distributed in the hope that it will be
+ * useful, but WITHOUT ANY WARRANTY; without even the
+ * implied warranty of MERCHANTABILITY or FITNESS FOR A
+ * PARTICULAR PURPOSE. See the GNU General Public License
+ * for more details.
+ *
+ * You should have received a copy of the GNU General Public
+ * License along with this program.
+ *
+ * If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// A host build of the menu: the same ui/menu.cpp the firmware links, drawn
+// into a shared frame buffer that stream.py serves as MJPEG. It stands in for
+// the panel, not for the board: the flush writes memory instead of talking to
+// SPI.
+
 #include <fcntl.h>
-#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,12 +33,12 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "board.h"
+#include "conf/board.h"
 #include "lvgl.h"
-#include "menu.h"
+#include "ui/menu.h"
 
-// The panel is 156x428 native and mounted on its side, so the surface the
-// menu draws on is the quarter turn: 428 wide by 156 tall.
+// The panel is 156x428 native and mounted on its side, so the surface the menu
+// draws on is the quarter turn: 428 wide by 156 tall.
 #define SIM_W LCD_V_RES
 #define SIM_H LCD_H_RES
 
@@ -29,23 +51,23 @@ typedef struct {
   uint32_t height;
 } frame_header_t;
 
-static uint16_t *s_frame_pixels;
+static uint8_t *s_frame;
 static frame_header_t *s_header;
 static uint8_t *s_draw;
 
-static uint32_t tick_ms(void) {
+static uint32_t tickMs() {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
-static void publish(void) {
+static void publish() {
   // The reader samples only between an even sequence number and its next
   // change, so a half-written frame is never shown.
   __sync_synchronize();
   ++s_header->seq;
   __sync_synchronize();
-  memcpy(s_frame_pixels, s_draw, (size_t)SIM_W * SIM_H * 2);
+  memcpy(s_frame, s_draw, (size_t)SIM_W * SIM_H * 2);
   __sync_synchronize();
   ++s_header->seq;
   __sync_synchronize();
@@ -58,7 +80,7 @@ static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px) {
   lv_display_flush_ready(disp);
 }
 
-static void create_display(void) {
+static void createDisplay() {
   lv_display_t *disp = lv_display_create(SIM_W, SIM_H);
   lv_display_set_flush_cb(disp, flush_cb);
   lv_display_set_buffers(disp, s_draw, NULL, SIM_W * SIM_H * 2,
@@ -66,24 +88,52 @@ static void create_display(void) {
   lv_display_set_default(disp);
 }
 
-static void read_keys(void) {
+static void readKeys() {
   char keys[32];
   const ssize_t got = read(STDIN_FILENO, keys, sizeof(keys));
   for (ssize_t i = 0; i < got; ++i) {
     switch (keys[i]) {
-      case 'n':
-        menu_next();
-        break;
-      case 'e':
-        menu_enter();
-        break;
-      case 'b':
-        menu_back();
-        break;
-      default:
-        break;
+    case 'n':
+      ThetaGP::Ui::Menu::next();
+      break;
+    case 'e':
+      ThetaGP::Ui::Menu::enter();
+      break;
+    case 'b':
+      ThetaGP::Ui::Menu::back();
+      break;
+    default:
+      break;
     }
   }
+}
+
+// Two rectangles and a column at known places, to tell a broken pipeline from a
+// broken layout.
+static void testPattern() {
+  lv_obj_t *scr = lv_screen_active();
+  lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+
+  struct {
+    int x, y, w, h;
+    lv_color_t colour;
+  } boxes[] = {
+      {0, 0, 20, 10, lv_color_make(255, 0, 0)},
+      {SIM_W - 20, SIM_H - 10, 20, 10, lv_color_make(0, 255, 0)},
+      {100, 0, 4, SIM_H, lv_color_make(255, 255, 255)},
+  };
+
+  for (const auto &box : boxes) {
+    lv_obj_t *obj = lv_obj_create(scr);
+    lv_obj_remove_style_all(obj);
+    lv_obj_set_pos(obj, box.x, box.y);
+    lv_obj_set_size(obj, box.w, box.h);
+    lv_obj_set_style_bg_color(obj, box.colour, 0);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
+  }
+  lv_refr_now(NULL);
+  publish();
 }
 
 int main(int argc, char **argv) {
@@ -105,68 +155,46 @@ int main(int argc, char **argv) {
     perror("map frame file");
     return 1;
   }
-  s_header = map;
-  s_frame_pixels = (uint16_t *)((uint8_t *)map + sizeof(frame_header_t));
+  s_header = (frame_header_t *)map;
+  s_frame = (uint8_t *)map + sizeof(frame_header_t);
   s_header->magic = FRAME_MAGIC;
   s_header->width = SIM_W;
   s_header->height = SIM_H;
 
-  s_draw = calloc(1, pixels);
+  s_draw = (uint8_t *)calloc(1, pixels);
   if (s_draw == NULL) {
     fprintf(stderr, "no draw buffer\n");
     return 1;
   }
 
   lv_init();
-  lv_tick_set_cb(tick_ms);
-  create_display();
+  lv_tick_set_cb(tickMs);
+  createDisplay();
 
   if (argc > 2 && strcmp(argv[2], "test") == 0) {
-    lv_obj_t *scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
-    lv_obj_t *a = lv_obj_create(scr);
-    lv_obj_remove_style_all(a);
-    lv_obj_set_pos(a, 0, 0);
-    lv_obj_set_size(a, 20, 10);
-    lv_obj_set_style_bg_color(a, lv_color_make(255, 0, 0), 0);
-    lv_obj_set_style_bg_opa(a, LV_OPA_COVER, 0);
-    lv_obj_t *b = lv_obj_create(scr);
-    lv_obj_remove_style_all(b);
-    lv_obj_set_pos(b, SIM_W - 20, SIM_H - 10);
-    lv_obj_set_size(b, 20, 10);
-    lv_obj_set_style_bg_color(b, lv_color_make(0, 255, 0), 0);
-    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
-    lv_obj_t *c = lv_obj_create(scr);
-    lv_obj_remove_style_all(c);
-    lv_obj_set_pos(c, 100, 0);
-    lv_obj_set_size(c, 4, SIM_H);
-    lv_obj_set_style_bg_color(c, lv_color_make(255, 255, 255), 0);
-    lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
-    lv_refr_now(NULL);
-    publish();
+    testPattern();
     printf("sim: test pattern\n");
     for (;;) {
       sleep(1);
     }
   }
 
-  menu_init();
-  menu_set_link(false);
-  menu_set_profile(1, 2, "Main");
-  menu_set_report_hz(8000);
+  ThetaGP::Ui::Menu::init();
+  ThetaGP::Ui::Menu::setLink(false);
+  ThetaGP::Ui::Menu::setProfile(1, 2, "Main");
+  ThetaGP::Ui::Menu::setReportHz(8000);
   lv_refr_now(NULL);
   publish();
   printf("sim: %dx%d, keys on stdin: n=next e=enter b=back\n", SIM_W, SIM_H);
   fflush(stdout);
 
   // The stream is the only consumer of stdin; it forwards navigation keys.
-  int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+  const int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
   fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
 
   for (;;) {
     uint32_t idle = lv_timer_handler();
-    read_keys();
+    readKeys();
     if (idle < 2) {
       idle = 2;
     }

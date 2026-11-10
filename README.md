@@ -12,5 +12,5 @@ the pages behind them, all drawn from a flat palette.
 
 This firmware is not the gamepad's own and never touches USB HID. What it shows
 is meant to come from the protocol in `ThetaGP.PB`; that link is not wired in
-yet, so the pages read the model `menu.h` exposes, and `main.c` fills it with the
-values the display was built against.
+yet, so the pages read the model `ui/menu.h` exposes, and `Coprocessor::setup`
+fills it with the values the display was built against.
