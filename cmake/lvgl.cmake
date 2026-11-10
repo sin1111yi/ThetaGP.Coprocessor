@@ -27,7 +27,8 @@
 
 set(THETAGP_LVGL_REPOSITORY "https://github.com/lvgl/lvgl.git" CACHE STRING
     "The LVGL repository the firmware is written against")
-set(THETAGP_LVGL_TAG "3be31ace230de3b57347f8d678ff32e8ac1de7dc" CACHE STRING
+# The v9.5.0 release.
+set(THETAGP_LVGL_TAG "85aa60d18b3d5e5588d7b247abf90198f07c8a63" CACHE STRING
     "The LVGL commit the firmware is written against")
 
 # Fetches LVGL into <dir> unless it is already there, and leaves its path in
@@ -35,27 +36,40 @@ set(THETAGP_LVGL_TAG "3be31ace230de3b57347f8d678ff32e8ac1de7dc" CACHE STRING
 function(thetagp_lvgl dir)
   set(THETAGP_LVGL_DIR "${dir}" PARENT_SCOPE)
 
-  if(EXISTS "${dir}/CMakeLists.txt")
-    message(STATUS "LVGL: ${dir} is already fetched")
-    return()
-  endif()
-
   find_package(Git REQUIRED)
-  message(STATUS "LVGL: fetching ${THETAGP_LVGL_TAG} into ${dir}")
 
-  file(MAKE_DIRECTORY "${dir}")
-  execute_process(
-    COMMAND ${GIT_EXECUTABLE} init --quiet "${dir}"
-    RESULT_VARIABLE init_result
-    ERROR_VARIABLE init_error)
-  if(NOT init_result EQUAL 0)
-    message(FATAL_ERROR "LVGL: cannot create ${dir}: ${init_error}")
+  # A checkout already on the pinned commit is used as it is, and one on
+  # another commit is moved to it: changing the pin is enough, nothing here
+  # has to be removed by hand.
+  if(EXISTS "${dir}/.git")
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} -C "${dir}" rev-parse HEAD
+      OUTPUT_VARIABLE current
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET
+      RESULT_VARIABLE rev_result)
+    if(rev_result EQUAL 0 AND current STREQUAL THETAGP_LVGL_TAG)
+      message(STATUS "LVGL: ${dir} is at ${THETAGP_LVGL_TAG}")
+      return()
+    endif()
+    message(STATUS "LVGL: ${dir} is elsewhere, moving to ${THETAGP_LVGL_TAG}")
+  else()
+    file(REMOVE_RECURSE "${dir}")
+    file(MAKE_DIRECTORY "${dir}")
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} init --quiet "${dir}"
+      RESULT_VARIABLE init_result
+      ERROR_VARIABLE init_error)
+    if(NOT init_result EQUAL 0)
+      message(FATAL_ERROR "LVGL: cannot create ${dir}: ${init_error}")
+    endif()
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} -C "${dir}" remote add origin
+              "${THETAGP_LVGL_REPOSITORY}"
+      ERROR_QUIET)
   endif()
 
-  execute_process(
-    COMMAND ${GIT_EXECUTABLE} -C "${dir}" remote add origin
-            "${THETAGP_LVGL_REPOSITORY}"
-    ERROR_QUIET)
+  message(STATUS "LVGL: fetching ${THETAGP_LVGL_TAG} into ${dir}")
 
   # One commit is all that is wanted. A server that refuses to hand out a
   # single commit is asked for the history instead, which still lands on the

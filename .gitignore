@@ -1,5 +1,5 @@
 # Fetched at configure time (cmake/lvgl.cmake)
-.deps/
+lib/lvgl/
 
 # Build trees
 build/

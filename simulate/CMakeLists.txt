@@ -33,7 +33,7 @@ endif()
 
 # LVGL is fetched, not carried: see cmake/lvgl.cmake.
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/lvgl.cmake)
-thetagp_lvgl(${CMAKE_CURRENT_SOURCE_DIR}/../.deps/lvgl)
+thetagp_lvgl(${CMAKE_CURRENT_SOURCE_DIR}/../lib/lvgl)
 add_subdirectory(${THETAGP_LVGL_DIR} ${CMAKE_CURRENT_BINARY_DIR}/lvgl)
 
 # The window the panel is blitted into. SDL2 ships as a CMake package on most

@@ -278,7 +278,7 @@ static void list_build(lv_obj_t *parent) {
   lv_obj_set_size(s_list, LIST_W, LIST_H);
   lv_obj_set_scroll_dir(s_list, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(s_list, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_scroll_elastic(s_list, false);
+  lv_obj_remove_flag(s_list, LV_OBJ_FLAG_SCROLL_ELASTIC);
   lv_obj_set_style_anim_duration(s_list, 220, 0);
 
   for (int i = 0; i < CARD_COUNT; ++i) {
@@ -313,7 +313,7 @@ static void arc_build(lv_obj_t *parent) {
   s_arc = lv_arc_create(parent);
   lv_obj_set_pos(s_arc, ARC_X, ARC_Y);
   lv_obj_set_size(s_arc, ARC_SIZE, ARC_SIZE);
-  lv_obj_set_clickable(s_arc, false);
+  lv_obj_remove_flag(s_arc, LV_OBJ_FLAG_CLICKABLE);
   lv_arc_set_rotation(s_arc, 135);
   lv_arc_set_bg_angles(s_arc, 0, 270);
   lv_obj_remove_style(s_arc, NULL, LV_PART_KNOB);

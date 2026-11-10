@@ -27,7 +27,15 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # directory has to exist before project() looks for components, so it happens
 # here rather than in a component of its own.
 include("${CMAKE_SOURCE_DIR}/cmake/lvgl.cmake")
-thetagp_lvgl("${CMAKE_SOURCE_DIR}/.deps/lvgl")
-set(EXTRA_COMPONENT_DIRS "${CMAKE_SOURCE_DIR}/.deps")
+thetagp_lvgl("${CMAKE_SOURCE_DIR}/lib/lvgl")
+set(EXTRA_COMPONENT_DIRS "${CMAKE_SOURCE_DIR}/lib")
 
 project(ThetaGP.Coprocessor)
+
+# LVGL 9.5.0 carries the NV3007 driver but publishes no Kconfig switch for it,
+# so the switch is handed to the component that compiles it. The generic MIPI
+# driver it builds on is a Kconfig switch of its own, set in
+# sdkconfig.defaults.
+if(TARGET __idf_lvgl)
+  target_compile_definitions(__idf_lvgl PUBLIC LV_USE_NV3007=1)
+endif()
