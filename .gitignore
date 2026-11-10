@@ -1,0 +1,10 @@
+# Build trees
+build/
+sim/build/
+
+# ESP-IDF local configuration, generated from sdkconfig.defaults
+sdkconfig
+sdkconfig.old
+
+# Components fetched by the component manager
+managed_components/

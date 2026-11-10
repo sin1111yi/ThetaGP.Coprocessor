@@ -1,0 +1,35 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "esp32s3",
+      "displayName": "ESP32-S3 (debug)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/esp32s3",
+      "toolchainFile": "$env{IDF_PATH}/tools/cmake/toolchain-esp32s3.cmake",
+      "cacheVariables": {
+        "IDF_TARGET": "esp32s3",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "esp32s3-release",
+      "displayName": "ESP32-S3 (release)",
+      "inherits": "esp32s3",
+      "binaryDir": "${sourceDir}/build/esp32s3-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "esp32s3",
+      "configurePreset": "esp32s3"
+    },
+    {
+      "name": "esp32s3-release",
+      "configurePreset": "esp32s3-release"
+    }
+  ]
+}
