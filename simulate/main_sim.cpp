@@ -91,22 +91,20 @@ void handleKeys() {
       s_quit = true;
     } else if (event.type == SDL_KEYDOWN) {
       switch (event.key.keysym.sym) {
-      case SDLK_n:
-      case SDLK_RIGHT:
+      case SDLK_UP:
+      case SDLK_LEFT:
+        ThetaGP::Ui::Menu::prev();
+        break;
       case SDLK_DOWN:
+      case SDLK_RIGHT:
         ThetaGP::Ui::Menu::next();
         break;
-      case SDLK_e:
       case SDLK_RETURN:
+      case SDLK_KP_ENTER:
         ThetaGP::Ui::Menu::enter();
         break;
-      case SDLK_b:
-      case SDLK_LEFT:
-      case SDLK_ESCAPE:
+      case SDLK_BACKSPACE:
         ThetaGP::Ui::Menu::back();
-        break;
-      case SDLK_q:
-        s_quit = true;
         break;
       default:
         break;
@@ -142,24 +140,25 @@ bool dumpPpm(const char *path) {
 }
 
 void usage(const char *argv0) {
-  std::printf("usage: %s [--scale N] [--dump FILE.ppm]\n", argv0);
-  std::printf("  n / right / down   next card\n"
-              "  e / return         enter the page\n"
-              "  b / left / escape  back\n"
-              "  q                  quit\n");
+  std::printf("usage: %s [--scale F] [--dump FILE.ppm]\n", argv0);
+  std::printf("  up / left          previous card\n"
+              "  down / right       next card\n"
+              "  enter              enter the page\n"
+              "  backspace          back\n"
+              "  close the window   quit\n");
 }
 
 } // namespace
 
 int main(int argc, char **argv) {
-  int scale = 2;
+  float scale = 1.0f;
   const char *dump = nullptr;
 
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--scale") == 0 && i + 1 < argc) {
-      scale = std::atoi(argv[++i]);
-      if (scale < 1) {
-        scale = 1;
+      scale = std::strtof(argv[++i], nullptr);
+      if (scale <= 0.0f) {
+        scale = 0.5f;
       }
     } else if (std::strcmp(argv[i], "--dump") == 0 && i + 1 < argc) {
       dump = argv[++i];
@@ -178,14 +177,15 @@ int main(int argc, char **argv) {
   // A dump is a picture of one state, so it configures the panel the way the
   // firmware does and writes what LVGL drew.
   if (dump == nullptr) {
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
       std::fprintf(stderr, "simulate: SDL: %s\n", SDL_GetError());
       return 1;
     }
-    SDL_Window *window =
-        SDL_CreateWindow("ThetaGP.Coprocessor", SDL_WINDOWPOS_CENTERED,
-                         SDL_WINDOWPOS_CENTERED, SIM_W * scale, SIM_H * scale,
-                         SDL_WINDOW_SHOWN);
+    SDL_Window *window = SDL_CreateWindow(
+        "ThetaGP.Coprocessor", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        (int)(SIM_W * scale + 0.5f), (int)(SIM_H * scale + 0.5f),
+        SDL_WINDOW_SHOWN);
     if (window == nullptr) {
       std::fprintf(stderr, "simulate: window: %s\n", SDL_GetError());
       return 1;
