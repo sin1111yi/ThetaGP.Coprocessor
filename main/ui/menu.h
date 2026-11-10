@@ -37,6 +37,10 @@ namespace ThetaGP::Ui {
 struct Model {
   const char *board = "ThetaGP-H743";
   const char *profile_name = "Main";
+  // What the main board reported over the link: its identifier and firmware
+  // version, empty until it answers.
+  char peer_id[17] = "";
+  char peer_version[21] = "";
   uint32_t profile_id = 1;
   uint32_t profile_count = 2;
   uint32_t report_hz = 8000;
@@ -47,14 +51,22 @@ const Model &model();
 
 namespace Menu {
 
-// Creates the screen on the active display, at the top of the menu.
+// Creates the screen on the active display, at the top of the menu. The
+// power-up wordmark plays over it, and nothing outside the menu should start
+// talking to the main board before it has finished.
 void init();
+
+// True once the wordmark has played out (or was skipped).
+bool introDone();
 
 // The link state the status page shows: a live protocol link or none.
 void setLink(bool up);
 
 // The device's report rate, as sys.get_usage reports it.
 void setReportHz(uint32_t hz);
+
+// The main board's identifier and firmware version, as the link reports them.
+void setPeer(const char *id, const char *version);
 
 // The active profile's name and id, as profile.list reports them.
 void setProfile(uint32_t id, uint32_t count, const char *name);

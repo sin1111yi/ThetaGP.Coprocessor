@@ -182,10 +182,10 @@ int main(int argc, char **argv) {
       std::fprintf(stderr, "simulate: SDL: %s\n", SDL_GetError());
       return 1;
     }
-    SDL_Window *window = SDL_CreateWindow(
-        "ThetaGP.Coprocessor", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        (int)(SIM_W * scale + 0.5f), (int)(SIM_H * scale + 0.5f),
-        SDL_WINDOW_SHOWN);
+    SDL_Window *window =
+        SDL_CreateWindow("ThetaGP.Coprocessor", SDL_WINDOWPOS_CENTERED,
+                         SDL_WINDOWPOS_CENTERED, (int)(SIM_W * scale + 0.5f),
+                         (int)(SIM_H * scale + 0.5f), SDL_WINDOW_SHOWN);
     if (window == nullptr) {
       std::fprintf(stderr, "simulate: window: %s\n", SDL_GetError());
       return 1;
@@ -217,6 +217,13 @@ int main(int argc, char **argv) {
   lv_refr_now(NULL);
 
   if (dump != nullptr) {
+    // The picture is of the state the panel settles on, so the timers are run
+    // past the power-up splash before it is taken.
+    const uint32_t settle = tickMs() + 4000;
+    while ((int32_t)(tickMs() - settle) < 0) {
+      lv_timer_handler();
+      SDL_Delay(5);
+    }
     const bool ok = dumpPpm(dump);
     if (s_texture != nullptr) {
       SDL_DestroyTexture(s_texture);

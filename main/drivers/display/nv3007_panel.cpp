@@ -39,7 +39,7 @@ void Nv3007Panel::init() {
   outputs.mode = GPIO_MODE_OUTPUT;
   ESP_ERROR_CHECK(gpio_config(&outputs));
   gpio_set_level(PIN_LCD_CS, 1);
-  gpio_set_level(PIN_LCD_BLK, 1);
+  gpio_set_level(PIN_LCD_BLK, 0);
 
   spi_bus_config_t bus = {};
   bus.mosi_io_num = PIN_LCD_MOSI;
@@ -60,6 +60,11 @@ void Nv3007Panel::init() {
   ESP_ERROR_CHECK(spi_bus_add_device(LCD_SPI_HOST, &panel, &_spi));
 
   reset();
+}
+
+void Nv3007Panel::backlight(bool on) {
+  gpio_set_level(PIN_LCD_BLK, on ? 1 : 0);
+  printf("panel: backlight %s\n", on ? "on" : "off");
 }
 
 void Nv3007Panel::reset() {
@@ -96,8 +101,7 @@ void Nv3007Panel::sendCommand(lv_display_t *disp, const uint8_t *cmd,
 }
 
 void Nv3007Panel::sendColour(lv_display_t *disp, const uint8_t *cmd,
-                             size_t cmdSize, uint8_t *param,
-                             size_t paramSize) {
+                             size_t cmdSize, uint8_t *param, size_t paramSize) {
   Nv3007Panel &panel = getInstance();
 
   if (param != nullptr && paramSize != 0) {

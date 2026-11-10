@@ -40,8 +40,12 @@ public:
     return instance;
   }
 
-  // Claims the pins and the bus, then resets the panel into a known state.
+  // Claims the pins and the bus, then resets the panel into a known state. The
+  // backlight stays off until the screen has something to show.
   void init();
+
+  // The panel's backlight, off until the first frame is on the glass.
+  void backlight(bool on);
 
   // The callbacks LVGL's NV3007 driver writes through.
   static void sendCommand(lv_display_t *disp, const uint8_t *cmd,

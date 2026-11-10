@@ -23,6 +23,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 #include "build_info.h"
 #include "conf/board.h"
@@ -37,9 +38,7 @@ namespace ThetaGP::Ui {
 // firmware fills it with the values the display was built against.
 static Model s_model;
 
-const Model &model() {
-  return s_model;
-}
+const Model &model() { return s_model; }
 
 namespace Menu {
 
@@ -72,11 +71,11 @@ static uint8_t s_selected;
 // The main menu is three columns: names on the left, a progress bar in the
 // middle, the chosen page's parameters on the right. The columns travel along
 // an arc as the selection moves, and wrap around at either end.
-#define CARD_COUNT 5
+#define CARD_COUNT  5
 #define HOME_CARD_W 150
 #define HOME_CARD_H 34
 #define HOME_PITCH  36
-#define HOME_CENTER 80
+#define HOME_CENTER 60
 #define HOME_CURVE  22
 #define HOME_VIS    1.35f
 
@@ -89,13 +88,15 @@ static lv_obj_t *s_home_icons[CARD_COUNT];
 static lv_obj_t *s_home_keys[3];
 static lv_obj_t *s_home_values[3];
 static lv_obj_t *s_home_thumb;
-static lv_obj_t *s_home_index;
+static lv_obj_t *s_home_ticker;
+static lv_obj_t *s_home_link;
 static uint8_t s_home_drawn = 0xFF;
 
 // The wordmark fades in over the menu, holds, then fades out and uncovers it.
 struct Splash {
   lv_obj_t *cover;
   lv_obj_t *logo;
+  bool done = false;
 };
 
 static Splash s_splash;
@@ -103,16 +104,17 @@ static Splash s_splash;
 // ── pages ──
 
 static void draw_status(lv_obj_t *parent) {
-  lv_obj_t *profile = surface(parent, 8, 8, 198, 70);
+  lv_obj_t *profile = surface(parent, 8, 23, 198, 70);
   text(profile, "PROFILE", &lv_font_montserrat_12, Theme::MUTED, 10, 6, 90);
-  text(profile, s_model.profile_name, &lv_font_montserrat_20, Theme::TEXT, 10, 22, 170);
+  text(profile, s_model.profile_name, &lv_font_montserrat_20, Theme::TEXT, 10,
+       22, 170);
 
   char body[32];
   snprintf(body, sizeof body, "profile %u of %u", (unsigned)s_model.profile_id,
            (unsigned)s_model.profile_count);
   text(profile, body, &lv_font_montserrat_12, Theme::MUTED, 10, 48, 170);
 
-  lv_obj_t *link = surface(parent, 214, 8, 198, 70);
+  lv_obj_t *link = surface(parent, 214, 23, 198, 70);
   text(link, "LINK", &lv_font_montserrat_12, Theme::MUTED, 10, 6, 90);
 
   lv_obj_t *dot = lv_obj_create(link);
@@ -120,7 +122,8 @@ static void draw_status(lv_obj_t *parent) {
   lv_obj_set_pos(dot, 10, 26);
   lv_obj_set_size(dot, 8, 8);
   lv_obj_set_style_radius(dot, 4, 0);
-  lv_obj_set_style_bg_color(dot, colour(s_model.link ? Theme::ACCENT : Theme::MUTED), 0);
+  lv_obj_set_style_bg_color(
+      dot, colour(s_model.link ? Theme::ACCENT : Theme::MUTED), 0);
   lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
 
   text(link, s_model.link ? "live" : "waiting", &lv_font_montserrat_14,
@@ -136,8 +139,9 @@ static void draw_status(lv_obj_t *parent) {
 }
 
 static void draw_keymap(lv_obj_t *parent) {
-  static const char *keys[16] = {"B1", "B2", "B3", "B4", "L1", "R1", "L2", "R2",
-                                 "S1", "S2", "L3", "R3", "A1", "A2", "UP", "DN"};
+  static const char *keys[16] = {"B1", "B2", "B3", "B4", "L1", "R1",
+                                 "L2", "R2", "S1", "S2", "L3", "R3",
+                                 "A1", "A2", "UP", "DN"};
   const int cell_w = 30;
   const int cell_h = 28;
   const int gap = 3;
@@ -146,7 +150,7 @@ static void draw_keymap(lv_obj_t *parent) {
     const int col = i % 8;
     const int row = i / 8;
     lv_obj_t *key = surface(parent, 6 + col * (cell_w + gap),
-                            10 + row * (cell_h + gap), cell_w, cell_h);
+                            28 + row * (cell_h + gap), cell_w, cell_h);
     lv_obj_set_style_radius(key, 5, 0);
     const bool on_cursor = i == s_selected;
     if (on_cursor) {
@@ -167,7 +171,7 @@ static const char *const PROFILE_NAMES[3] = {"Main", "Racing", "Retro"};
 
 static void draw_profiles(lv_obj_t *parent) {
   for (int i = 0; i < 3; ++i) {
-    lv_obj_t *row = surface(parent, 8, 8 + i * 24, 404, 21);
+    lv_obj_t *row = surface(parent, 8, 23 + i * 24, 404, 21);
     lv_obj_set_style_radius(row, 5, 0);
     if ((uint8_t)i == s_selected) {
       fill(row, Theme::SURFACE_HI);
@@ -187,7 +191,7 @@ static void draw_config(lv_obj_t *parent) {
   static const char *keys[4] = {"usb.input_mode", "led.bri", "map.socd",
                                 "usb.wired_report_hz"};
   for (int i = 0; i < 4; ++i) {
-    lv_obj_t *row = surface(parent, 8, 6 + i * 22, 404, 19);
+    lv_obj_t *row = surface(parent, 8, 15 + i * 22, 404, 19);
     lv_obj_set_style_radius(row, 5, 0);
     lv_obj_set_style_border_width(row, 0, 0);
     if ((uint8_t)i == s_selected) {
@@ -205,12 +209,12 @@ static void draw_about(lv_obj_t *parent) {
   snprintf(version, sizeof version, "firmware %s", BuildInfo::VERSION);
 
   text(parent, "ThetaGP coprocessor", &lv_font_montserrat_14, Theme::ACCENT, 10,
-       8, 400);
-  text(parent, version, &lv_font_montserrat_12, Theme::TEXT, 10, 30, 400);
+       21, 400);
+  text(parent, version, &lv_font_montserrat_12, Theme::TEXT, 10, 43, 400);
   text(parent, "ESP32-S3 + NV3007", &lv_font_montserrat_12, Theme::MUTED, 10,
-       50, 400);
+       63, 400);
   text(parent, "schema ThetaGP.PB", &lv_font_montserrat_12, Theme::MUTED, 10,
-       68, 400);
+       81, 400);
 }
 
 static const Page PAGE_STATUS = {"Status", draw_status, NULL, 0};
@@ -220,8 +224,8 @@ static const Page PAGE_CONFIG = {"Config", draw_config, NULL, 4};
 static const Page PAGE_ABOUT = {"About", draw_about, NULL, 0};
 
 static const Item MAIN_ITEMS[] = {
-    {"Status", &PAGE_STATUS},   {"Profiles", &PAGE_PROFILES},
-    {"Keymap", &PAGE_KEYMAP},   {"Config", &PAGE_CONFIG},
+    {"Status", &PAGE_STATUS}, {"Profiles", &PAGE_PROFILES},
+    {"Keymap", &PAGE_KEYMAP}, {"Config", &PAGE_CONFIG},
     {"About", &PAGE_ABOUT},
 };
 
@@ -231,15 +235,15 @@ static const Page PAGE_MAIN = {"Menu", NULL, MAIN_ITEMS, 5};
 
 // The bar's amber thumb and the dark rail it runs on.
 #define THUMB 0xFDBA74
-#define RAIL 0x3A2A1F
+#define RAIL  0x3A2A1F
 
 static const char *const HOME_ICONS[CARD_COUNT] = {
-    LV_SYMBOL_WIFI, LV_SYMBOL_DIRECTORY, LV_SYMBOL_KEYBOARD,
-    LV_SYMBOL_SETTINGS, LV_SYMBOL_FILE};
+    LV_SYMBOL_WIFI, LV_SYMBOL_DIRECTORY, LV_SYMBOL_KEYBOARD, LV_SYMBOL_SETTINGS,
+    LV_SYMBOL_FILE};
 
 static const char *const HOME_KEYS[CARD_COUNT][3] = {
-    {"LINK", "RATE", "PROFILE"}, {"ID", "COUNT", "NAME"},
-    {"KEYS", "LAYER", "MODE"},   {"INPUT", "REPORT", "SAVE"},
+    {"LINK", "RATE", "PROFILE"},  {"ID", "COUNT", "NAME"},
+    {"KEYS", "LAYER", "MODE"},    {"INPUT", "REPORT", "SAVE"},
     {"BOARD", "MCU", "FIRMWARE"},
 };
 
@@ -339,26 +343,209 @@ static void home_layout(void) {
     t = 1;
   }
   lv_obj_set_y(s_home_thumb, (int)(t * 76));
+}
 
-  char index[12];
-  snprintf(index, sizeof index, "%02d / %02d", selected + 1, CARD_COUNT);
-  lv_label_set_text(s_home_index, index);
+// ── the link read-out ──
+
+// ── the bottom line ──
+// One band across the whole width of the panel: the panel's own name while it
+// is alone, the main board's name and version rolling past once it answers.
+#define LINK_SLOT_X 0
+#define LINK_SLOT_Y 121
+#define LINK_SLOT_W 420
+
+static char s_bandLine[192];
+static lv_obj_t *s_home_band;
+static uint8_t *s_bandPixels;
+static void band_free(void);
+static void band_build(const char *line);
+static void band_gone_cb(lv_anim_t *anim);
+static void fade(lv_obj_t *obj, lv_opa_t from, lv_opa_t to,
+                 lv_anim_completed_cb_t done);
+static void hide_cb(lv_anim_t *anim);
+
+// Paints the corner for the state the model carries, once per change.
+static void home_link_show(void) {
+  if (s_home_link == NULL) {
+    return;
+  }
+
+  // The band is the only thing that says whether the main board is there: the
+  // board's own name and version scroll while it answers, and the panel's name
+  // sits still while it does not.
+  const bool identified = s_model.link && s_model.peer_id[0] != '\0';
+
+  if (!identified) {
+    // Alone, the panel says its own name and nothing moves. The band is let go
+    // only once it has faded, so the change is a dissolve and not a cut.
+    if (s_home_band != NULL) {
+      fade(s_home_band, LV_OPA_COVER, LV_OPA_TRANSP, band_gone_cb);
+    }
+    s_bandLine[0] = '\0';
+    if (s_home_link != NULL) {
+      lv_label_set_text(s_home_link, "ThetaGP.Coprocessor");
+      fade(s_home_link, LV_OPA_TRANSP, LV_OPA_COVER, NULL);
+    }
+    return;
+  }
+
+  char line[192];
+  snprintf(line, sizeof line,
+           "%s %s      |      ThetaGP.Coprocessor      |      ",
+           s_model.peer_id, s_model.peer_version);
+  if (std::strcmp(s_bandLine, line) != 0) {
+    std::strncpy(s_bandLine, line, sizeof s_bandLine - 1);
+    s_bandLine[sizeof s_bandLine - 1] = '\0';
+    band_build(line);
+    fade(s_home_band, LV_OPA_TRANSP, LV_OPA_COVER, NULL);
+    fade(s_home_link, LV_OPA_COVER, LV_OPA_TRANSP, hide_cb);
+  }
+}
+
+// The band is drawn once into a bitmap and slid, not drawn again every frame:
+// blending glyphs costs milliseconds, copying a strip costs tens of
+// microseconds, and a slow crawl is only smooth when every step lands on time.
+#define BAND_H        16
+#define BAND_PX_PER_S 55
+
+static void band_x_cb(void *var, int32_t value) {
+  lv_obj_set_x((lv_obj_t *)var, (int)value);
+}
+
+// The width one copy of the line takes, measured before the band is built.
+static int band_measure(const char *text) {
+  lv_obj_t *probe = lv_label_create(lv_screen_active());
+  lv_label_set_text(probe, text);
+  lv_obj_set_style_text_font(probe, &lv_font_montserrat_12, 0);
+  lv_obj_set_width(probe, LV_SIZE_CONTENT);
+  lv_obj_update_layout(probe);
+  const int width = (int)lv_obj_get_width(probe);
+  lv_obj_delete(probe);
+  return width;
+}
+
+// Paints one line twice into the bitmap, so the copy that leaves the left edge
+// is the one arriving at the right.
+static void band_paint(const char *line, int width) {
+  if (s_home_band == NULL) {
+    return;
+  }
+
+  lv_canvas_fill_bg(s_home_band, colour(Theme::BG), LV_OPA_COVER);
+
+  lv_layer_t layer;
+  lv_canvas_init_layer(s_home_band, &layer);
+
+  lv_draw_label_dsc_t dsc;
+  lv_draw_label_dsc_init(&dsc);
+  dsc.font = &lv_font_montserrat_12;
+  dsc.color = colour(Theme::MUTED);
+  dsc.text = line;
+  dsc.text_length = (uint32_t)std::strlen(line);
+
+  lv_area_t area = {0, 0, (lv_coord_t)(width - 1), BAND_H - 1};
+  lv_draw_label(&layer, &dsc, &area);
+
+  lv_canvas_finish_layer(s_home_band, &layer);
+}
+
+static void opa_cb(void *var, int32_t value) {
+  lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)value, 0);
+}
+
+static void hide_cb(lv_anim_t *anim) {
+  if (anim->var != NULL) {
+    lv_obj_add_flag((lv_obj_t *)anim->var, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+// Fades one line in over the other, so the corner changes state rather than
+// replacing itself.
+static void fade(lv_obj_t *obj, lv_opa_t from, lv_opa_t to,
+                 lv_anim_completed_cb_t done) {
+  if (obj == NULL) {
+    return;
+  }
+  if (to != LV_OPA_TRANSP) {
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
+  }
+  lv_anim_delete(obj, opa_cb);
+
+  lv_anim_t anim;
+  lv_anim_init(&anim);
+  lv_anim_set_var(&anim, obj);
+  lv_anim_set_values(&anim, from, to);
+  lv_anim_set_exec_cb(&anim, opa_cb);
+  lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
+  lv_anim_set_duration(&anim, 600);
+  // A fade-in ends with the line on show; only a fade-out is hidden at the end.
+  lv_anim_set_completed_cb(
+      &anim, done != NULL ? done : (to == LV_OPA_TRANSP ? hide_cb : nullptr));
+  lv_anim_start(&anim);
+}
+
+static void band_free(void) {
+  if (s_home_band != NULL) {
+    lv_obj_delete(s_home_band);
+    s_home_band = NULL;
+  }
+  if (s_bandPixels != NULL) {
+    lv_free(s_bandPixels);
+    s_bandPixels = NULL;
+  }
+}
+
+// Builds the band for one line and starts it moving.
+static void band_gone_cb(lv_anim_t *anim) {
+  (void)anim;
+  band_free();
+}
+
+static void band_build(const char *line) {
+  const int one = band_measure(line);
+  if (one <= 0) {
+    return;
+  }
+  const int width = one * 2;
+
+  band_free();
+
+  s_bandPixels = (uint8_t *)lv_malloc((size_t)width * BAND_H * 2);
+  if (s_bandPixels == NULL) {
+    return;
+  }
+
+  s_home_band = lv_canvas_create(s_home_ticker);
+  lv_obj_set_style_opa(s_home_band, LV_OPA_TRANSP, 0);
+  lv_canvas_set_buffer(s_home_band, s_bandPixels, width, BAND_H,
+                       LV_COLOR_FORMAT_RGB565);
+  lv_obj_set_pos(s_home_band, 0, 0);
+  lv_obj_remove_flag(s_home_band, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(s_home_band, LV_OBJ_FLAG_SCROLLABLE);
+
+  char twice[384];
+  snprintf(twice, sizeof twice, "%s%s", line, line);
+  band_paint(twice, width);
+
+  lv_anim_delete(s_home_band, band_x_cb);
+  lv_anim_t band;
+  lv_anim_init(&band);
+  lv_anim_set_var(&band, s_home_band);
+  lv_anim_set_values(&band, 0, -one);
+  lv_anim_set_exec_cb(&band, band_x_cb);
+  lv_anim_set_path_cb(&band, lv_anim_path_linear);
+  lv_anim_set_duration(&band, (uint32_t)((one * 1000) / BAND_PX_PER_S));
+  lv_anim_set_repeat_count(&band, LV_ANIM_REPEAT_INFINITE);
+  lv_anim_start(&band);
 }
 
 static void home_build(void) {
   s_scroll = (float)s_selected;
 
-  text(s_root, "ThetaGP", &lv_font_montserrat_20, Theme::ACCENT, 6, -4, 200);
-  s_home_index =
-      text(s_root, "01 / 05", &lv_font_montserrat_12, Theme::MUTED, 330, 3, 84);
-  lv_obj_set_style_text_align(s_home_index, LV_TEXT_ALIGN_RIGHT, 0);
-
-  lv_obj_t *rule = lv_obj_create(s_root);
-  lv_obj_remove_style_all(rule);
-  lv_obj_set_pos(rule, 6, 20);
-  lv_obj_set_size(rule, 408, 1);
-  lv_obj_set_style_bg_color(rule, colour(Theme::BORDER), 0);
-  lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
+  // The cards read as labels rather than as sentences: upper case, and the
+  // words standing clear of the icon.
+  static const char *const TITLES[CARD_COUNT] = {"STATUS", "PROFILES", "KEYMAP",
+                                                 "CONFIG", "ABOUT"};
 
   for (int i = 0; i < CARD_COUNT; ++i) {
     lv_obj_t *card = surface(s_root, 0, 0, HOME_CARD_W, HOME_CARD_H);
@@ -367,23 +554,23 @@ static void home_build(void) {
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
     s_home_icons[i] = text(card, HOME_ICONS[i], &lv_font_montserrat_14,
                            Theme::ACCENT, 24, 9, 18);
-    s_home_titles[i] = text(card, MAIN_ITEMS[i].label, &lv_font_montserrat_14,
-                            Theme::TEXT, 44, 9, HOME_CARD_W - 56);
+    s_home_titles[i] = text(card, TITLES[i], &lv_font_montserrat_14,
+                            Theme::TEXT, 56, 9, HOME_CARD_W - 62);
     s_home_cards[i] = card;
   }
 
   lv_obj_t *block = lv_obj_create(s_root);
   lv_obj_remove_style_all(block);
-  lv_obj_set_pos(block, 190, 0);
-  lv_obj_set_size(block, 224, 156);
+  lv_obj_set_pos(block, 200, 0);
+  lv_obj_set_size(block, 214, 156);
   lv_obj_set_style_bg_opa(block, LV_OPA_TRANSP, 0);
   lv_obj_remove_flag(block, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(block, LV_OBJ_FLAG_SCROLLABLE);
   for (int row = 0; row < 3; ++row) {
     lv_obj_t *item = lv_obj_create(block);
     lv_obj_remove_style_all(item);
-    lv_obj_set_pos(item, 0, 49 + row * 22);
-    lv_obj_set_size(item, 224, 18);
+    lv_obj_set_pos(item, 0, 31 + row * 22);
+    lv_obj_set_size(item, 214, 18);
     lv_obj_set_style_bg_opa(item, LV_OPA_TRANSP, 0);
     lv_obj_remove_flag(item, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(item, LV_OBJ_FLAG_SCROLLABLE);
@@ -405,8 +592,8 @@ static void home_build(void) {
   for (int row = 0; row < 3; ++row) {
     lv_obj_t *rule = lv_obj_create(block);
     lv_obj_remove_style_all(rule);
-    lv_obj_set_pos(rule, 0, 46 + row * 22);
-    lv_obj_set_size(rule, 224, 1);
+    lv_obj_set_pos(rule, 0, 28 + row * 22);
+    lv_obj_set_size(rule, 214, 1);
     lv_obj_set_style_bg_color(rule, colour(Theme::BORDER), 0);
     lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
     lv_obj_remove_flag(rule, LV_OBJ_FLAG_CLICKABLE);
@@ -416,7 +603,7 @@ static void home_build(void) {
 
   lv_obj_t *track = lv_obj_create(s_root);
   lv_obj_remove_style_all(track);
-  lv_obj_set_pos(track, 176, 32);
+  lv_obj_set_pos(track, 176, 12);
   lv_obj_set_size(track, 2, 96);
   lv_obj_set_style_radius(track, 1, 0);
   fill(track, RAIL);
@@ -430,9 +617,25 @@ static void home_build(void) {
   lv_obj_set_style_radius(s_home_thumb, 1, 0);
   fill(s_home_thumb, THUMB);
 
-  lv_obj_t *footer = text(s_root, "ESP32-S3  COPROCESSOR",
-                          &lv_font_montserrat_12, Theme::MUTED, 190, 120, 224);
-  lv_obj_set_style_text_align(footer, LV_TEXT_ALIGN_RIGHT, 0);
+  // One line at the bottom: what this panel is until the main board answers,
+  // and what the main board is once it does.
+  s_home_ticker = lv_obj_create(s_root);
+  lv_obj_remove_style_all(s_home_ticker);
+  lv_obj_set_pos(s_home_ticker, LINK_SLOT_X, LINK_SLOT_Y);
+  lv_obj_set_size(s_home_ticker, LINK_SLOT_W, 16);
+  lv_obj_remove_flag(s_home_ticker, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(s_home_ticker, LV_OBJ_FLAG_SCROLLABLE);
+
+  s_home_link = lv_label_create(s_home_ticker);
+  lv_label_set_text(s_home_link, "ThetaGP.Coprocessor");
+  lv_obj_set_style_text_font(s_home_link, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_home_link, colour(Theme::MUTED), 0);
+  lv_obj_set_width(s_home_link, LINK_SLOT_W);
+  lv_obj_set_style_text_align(s_home_link, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(s_home_link, LV_LABEL_LONG_CLIP);
+  lv_obj_set_pos(s_home_link, 0, 0);
+
+  home_link_show();
 }
 
 // An underdamped spring: the column and the thumb reach the next place a
@@ -440,8 +643,8 @@ static void home_build(void) {
 static int32_t home_path(const lv_anim_t *anim) {
   const float t = (float)anim->act_time / (float)anim->duration;
   const float settle =
-      1.0f - std::exp(-6.0f * t) *
-                 (std::cos(9.0f * t) + 0.67f * std::sin(9.0f * t));
+      1.0f -
+      std::exp(-6.0f * t) * (std::cos(9.0f * t) + 0.67f * std::sin(9.0f * t));
   return anim->start_value +
          (int32_t)((float)(anim->end_value - anim->start_value) * settle);
 }
@@ -465,8 +668,7 @@ static void home_anim_done(lv_anim_t *anim) {
 
 // One place along the column, along the arc and back into range.
 static void home_step(int step) {
-  s_selected =
-      (uint8_t)((s_selected + CARD_COUNT + step) % CARD_COUNT);
+  s_selected = (uint8_t)((s_selected + CARD_COUNT + step) % CARD_COUNT);
 
   lv_anim_delete(&s_scroll, NULL);
   s_anim_from = s_scroll;
@@ -489,12 +691,17 @@ static void render(void) {
   lv_anim_delete(&s_scroll, NULL);
   if (s_splash.cover != NULL) {
     // The page is about to be rebuilt under the splash: drop it early so the
-    // fade callbacks never touch objects the clean is about to delete.
+    // fade callbacks never touch objects the clean is about to delete. A page
+    // reached from a key press is the wordmark's end as well.
+    s_splash.done = true;
     lv_anim_delete(&s_splash, NULL);
     s_splash.cover = NULL;
     s_splash.logo = NULL;
   }
+  band_free();
   lv_obj_clean(s_root);
+  s_home_ticker = NULL;
+  s_home_link = NULL;
 
   if (s_page == &PAGE_MAIN) {
     home_build();
@@ -502,28 +709,10 @@ static void render(void) {
     return;
   }
 
-  lv_obj_t *mark = lv_obj_create(s_root);
-  lv_obj_remove_style_all(mark);
-  lv_obj_set_pos(mark, 10, 9);
-  lv_obj_set_size(mark, 6, 6);
-  lv_obj_set_style_radius(mark, 3, 0);
-  lv_obj_set_style_bg_color(mark, colour(Theme::ACCENT), 0);
-  lv_obj_set_style_bg_opa(mark, LV_OPA_COVER, 0);
-
-  text(s_root, "ThetaGP", &lv_font_montserrat_20, Theme::TEXT, 22, 0, 200);
-  text(s_root, s_page->title, &lv_font_montserrat_12, Theme::MUTED, 260, 6, 150);
-
-  lv_obj_t *rule = lv_obj_create(s_root);
-  lv_obj_remove_style_all(rule);
-  lv_obj_set_pos(rule, 8, 25);
-  lv_obj_set_size(rule, 404, 1);
-  lv_obj_set_style_bg_color(rule, colour(Theme::BORDER), 0);
-  lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
-
   lv_obj_t *body = lv_obj_create(s_root);
   lv_obj_remove_style_all(body);
-  lv_obj_set_pos(body, 0, 27);
-  lv_obj_set_size(body, 420, 96);
+  lv_obj_set_pos(body, 0, 0);
+  lv_obj_set_size(body, 420, 116);
 
   text(s_root, "BOOT  next   hold  open", &lv_font_montserrat_12, Theme::MUTED,
        10, 124, 300);
@@ -590,13 +779,9 @@ static void move(int step) {
   render();
 }
 
-void next() {
-  move(1);
-}
+void next() { move(1); }
 
-void prev() {
-  move(-1);
-}
+void prev() { move(-1); }
 
 void enter() {
   if (s_page == &PAGE_MAIN) {
@@ -644,6 +829,7 @@ static void splash_opa(void *var, int32_t value) {
 }
 
 static void splash_gone(lv_anim_t *anim) {
+  s_splash.done = true;
   (void)anim;
   if (s_splash.cover != NULL) {
     lv_obj_delete(s_splash.cover);
@@ -736,13 +922,41 @@ void init() {
   splash();
 }
 
-void setLink(bool up) {
-  s_model.link = up;
+bool introDone() { return s_splash.done; }
+
+void setPeer(const char *id, const char *version) {
+  if (id != NULL) {
+    std::strncpy(s_model.peer_id, id, sizeof s_model.peer_id - 1);
+    s_model.peer_id[sizeof s_model.peer_id - 1] = '\0';
+  }
+  if (version != NULL) {
+    std::strncpy(s_model.peer_version, version,
+                 sizeof s_model.peer_version - 1);
+    s_model.peer_version[sizeof s_model.peer_version - 1] = '\0';
+  }
+  if (s_page == &PAGE_MAIN) {
+    home_link_show();
+  }
 }
 
-void setReportHz(uint32_t hz) {
-  s_model.report_hz = hz;
+void setLink(bool up) {
+  if (s_model.link == up) {
+    return;
+  }
+  s_model.link = up;
+
+  if (s_page == &PAGE_MAIN) {
+    home_link_show();
+    // The parameters column prints the link too, and it only refills when the
+    // chosen card moves.
+    s_home_drawn = 0xFF;
+    home_layout();
+  } else if (s_page == &PAGE_STATUS) {
+    render();
+  }
 }
+
+void setReportHz(uint32_t hz) { s_model.report_hz = hz; }
 
 void setProfile(uint32_t id, uint32_t count, const char *name) {
   s_model.profile_id = id;

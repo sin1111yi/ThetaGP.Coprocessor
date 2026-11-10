@@ -41,9 +41,9 @@ void LvglDisplay::init() {
 
   // The panel is 156x428 native and mounted across the board; the drawing
   // surface is the quarter turn that puts it upright.
-  _display = lv_nv3007_create(LCD_H_RES, LCD_V_RES, LV_LCD_FLAG_NONE,
-                              Nv3007Panel::sendCommand,
-                              Nv3007Panel::sendColour);
+  _display =
+      lv_nv3007_create(LCD_H_RES, LCD_V_RES, LV_LCD_FLAG_NONE,
+                       Nv3007Panel::sendCommand, Nv3007Panel::sendColour);
   if (_display == nullptr) {
     printf("nv3007: no display\n");
     return;

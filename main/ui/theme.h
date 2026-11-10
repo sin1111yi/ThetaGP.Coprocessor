@@ -39,9 +39,7 @@ inline constexpr uint32_t TEXT = 0xF2F4F6;
 inline constexpr uint32_t MUTED = 0x8A8F98;
 inline constexpr uint32_t ACCENT = 0xF97316;
 
-inline lv_color_t colour(uint32_t rgb) {
-  return lv_color_hex(rgb);
-}
+inline lv_color_t colour(uint32_t rgb) { return lv_color_hex(rgb); }
 
 inline void fill(lv_obj_t *obj, uint32_t rgb) {
   lv_obj_set_style_bg_color(obj, colour(rgb), 0);
