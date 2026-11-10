@@ -31,13 +31,13 @@
 
 namespace ThetaGP::Ui::Theme {
 
-inline constexpr uint32_t BG = 0x0A0E14;
-inline constexpr uint32_t SURFACE = 0x121821;
-inline constexpr uint32_t SURFACE_HI = 0x1B2431;
-inline constexpr uint32_t BORDER = 0x232E3C;
-inline constexpr uint32_t TEXT = 0xECF1F8;
-inline constexpr uint32_t MUTED = 0x7C8899;
-inline constexpr uint32_t ACCENT = 0x3DDC97;
+inline constexpr uint32_t BG = 0x0C0D10;
+inline constexpr uint32_t SURFACE = 0x17191E;
+inline constexpr uint32_t SURFACE_HI = 0x21242A;
+inline constexpr uint32_t BORDER = 0x2A2D33;
+inline constexpr uint32_t TEXT = 0xF2F4F6;
+inline constexpr uint32_t MUTED = 0x8A8F98;
+inline constexpr uint32_t ACCENT = 0xF97316;
 
 inline lv_color_t colour(uint32_t rgb) {
   return lv_color_hex(rgb);

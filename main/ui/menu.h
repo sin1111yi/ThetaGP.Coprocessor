@@ -19,9 +19,10 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-// The menu the panel shows: a column of cards, an arc that tracks it and the
-// pages behind them. It owns no state the protocol cannot fill: the model is
-// what `ThetaGP.PB` will write and what the pages read.
+// The menu the panel shows: names on the left, a progress bar in the middle,
+// the chosen page's parameters on the right, and the pages behind them. It
+// owns no state the protocol cannot fill: the model is what `ThetaGP.PB` will
+// write and what the pages read.
 
 #pragma once
 
@@ -61,6 +62,7 @@ void setProfile(uint32_t id, uint32_t count, const char *name);
 // Navigation, driven by the link's buttons or, until it is up, by the board
 // button: a short press moves the mark, a long press enters or leaves a page.
 void next();
+void prev();
 void enter();
 void back();
 

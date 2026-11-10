@@ -26,6 +26,7 @@
 
 #include "build_info.h"
 #include "conf/board.h"
+#include "ui/logo.h"
 #include "ui/theme.h"
 
 #include "driver/gpio.h"
@@ -68,29 +69,36 @@ static const Page *s_stack[6];
 static uint8_t s_depth;
 static uint8_t s_selected;
 
-// The main menu is a column of cards that scrolls under the top edge, with an
-// arc in the right third showing how far down the column the mark sits.
+// The main menu is three columns: names on the left, a progress bar in the
+// middle, the chosen page's parameters on the right. The columns travel along
+// an arc as the selection moves, and wrap around at either end.
 #define CARD_COUNT 5
-#define CARD_W     258
-#define CARD_H     62
-#define CARD_GAP   8
-#define CARD_PITCH (CARD_H + CARD_GAP)
+#define HOME_CARD_W 150
+#define HOME_CARD_H 34
+#define HOME_PITCH  36
+#define HOME_CENTER 80
+#define HOME_CURVE  22
+#define HOME_VIS    1.35f
 
-#define LIST_W 272
-#define LIST_H 140
+static float s_scroll;
+static float s_anim_from;
+static float s_anim_diff;
+static lv_obj_t *s_home_cards[CARD_COUNT];
+static lv_obj_t *s_home_titles[CARD_COUNT];
+static lv_obj_t *s_home_icons[CARD_COUNT];
+static lv_obj_t *s_home_keys[3];
+static lv_obj_t *s_home_values[3];
+static lv_obj_t *s_home_thumb;
+static lv_obj_t *s_home_index;
+static uint8_t s_home_drawn = 0xFF;
 
-#define ARC_SIZE 132
-#define ARC_X   284
-#define ARC_Y   4
+// The wordmark fades in over the menu, holds, then fades out and uncovers it.
+struct Splash {
+  lv_obj_t *cover;
+  lv_obj_t *logo;
+};
 
-static lv_obj_t *s_list;
-static lv_obj_t *s_cards[CARD_COUNT];
-static lv_obj_t *s_card_titles[CARD_COUNT];
-static lv_obj_t *s_card_numbers[CARD_COUNT];
-static lv_obj_t *s_arc;
-static lv_obj_t *s_arc_title;
-static lv_obj_t *s_arc_index;
-static uint8_t s_drawn = 0xFF;
+static Splash s_splash;
 
 // ── pages ──
 
@@ -140,34 +148,37 @@ static void draw_keymap(lv_obj_t *parent) {
     lv_obj_t *key = surface(parent, 6 + col * (cell_w + gap),
                             10 + row * (cell_h + gap), cell_w, cell_h);
     lv_obj_set_style_radius(key, 5, 0);
-    if (i == 0) {
+    const bool on_cursor = i == s_selected;
+    if (on_cursor) {
       fill(key, Theme::SURFACE_HI);
-      lv_obj_set_style_border_color(key, colour(Theme::ACCENT), 0);
+      lv_obj_set_style_border_width(key, 0, 0);
     }
 
     lv_obj_t *name = lv_label_create(key);
     lv_label_set_text(name, keys[i]);
     lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(name, colour(i == 0 ? Theme::ACCENT : Theme::TEXT), 0);
+    lv_obj_set_style_text_color(
+        name, colour(on_cursor ? Theme::ACCENT : Theme::TEXT), 0);
     lv_obj_center(name);
   }
 }
 
+static const char *const PROFILE_NAMES[3] = {"Main", "Racing", "Retro"};
+
 static void draw_profiles(lv_obj_t *parent) {
-  static const char *names[3] = {"Main", "Racing", "Retro"};
   for (int i = 0; i < 3; ++i) {
     lv_obj_t *row = surface(parent, 8, 8 + i * 24, 404, 21);
     lv_obj_set_style_radius(row, 5, 0);
-    const bool active = (uint32_t)i == s_model.profile_id;
-    if (active) {
+    if ((uint8_t)i == s_selected) {
       fill(row, Theme::SURFACE_HI);
-      lv_obj_set_style_border_color(row, colour(Theme::ACCENT), 0);
+      lv_obj_set_style_border_width(row, 0, 0);
     } else {
       lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
       lv_obj_set_style_border_width(row, 0, 0);
     }
 
-    text(row, names[i], &lv_font_montserrat_14,
+    const bool active = (uint32_t)(i + 1) == s_model.profile_id;
+    text(row, PROFILE_NAMES[i], &lv_font_montserrat_14,
          active ? Theme::ACCENT : Theme::TEXT, 10, 1, 300);
   }
 }
@@ -178,9 +189,14 @@ static void draw_config(lv_obj_t *parent) {
   for (int i = 0; i < 4; ++i) {
     lv_obj_t *row = surface(parent, 8, 6 + i * 22, 404, 19);
     lv_obj_set_style_radius(row, 5, 0);
-    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(row, 0, 0);
-    text(row, keys[i], &lv_font_montserrat_12, Theme::TEXT, 10, 1, 300);
+    if ((uint8_t)i == s_selected) {
+      fill(row, Theme::SURFACE_HI);
+    } else {
+      lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    }
+    text(row, keys[i], &lv_font_montserrat_12,
+         (uint8_t)i == s_selected ? Theme::TEXT : Theme::MUTED, 10, 1, 300);
   }
 }
 
@@ -198,9 +214,9 @@ static void draw_about(lv_obj_t *parent) {
 }
 
 static const Page PAGE_STATUS = {"Status", draw_status, NULL, 0};
-static const Page PAGE_PROFILES = {"Profiles", draw_profiles, NULL, 0};
-static const Page PAGE_KEYMAP = {"Keymap", draw_keymap, NULL, 0};
-static const Page PAGE_CONFIG = {"Config", draw_config, NULL, 0};
+static const Page PAGE_PROFILES = {"Profiles", draw_profiles, NULL, 3};
+static const Page PAGE_KEYMAP = {"Keymap", draw_keymap, NULL, 16};
+static const Page PAGE_CONFIG = {"Config", draw_config, NULL, 4};
 static const Page PAGE_ABOUT = {"About", draw_about, NULL, 0};
 
 static const Item MAIN_ITEMS[] = {
@@ -213,143 +229,278 @@ static const Page PAGE_MAIN = {"Menu", NULL, MAIN_ITEMS, 5};
 
 // ── the main menu ──
 
-// The scroll offset that puts the chosen card across the middle of the list.
-static int list_offset(void) {
-  const int content = CARD_COUNT * CARD_PITCH - CARD_GAP;
-  int y = (int)s_selected * CARD_PITCH + CARD_H / 2 - LIST_H / 2;
-  if (y < 0) {
-    y = 0;
+// The bar's amber thumb and the dark rail it runs on.
+#define THUMB 0xFDBA74
+#define RAIL 0x3A2A1F
+
+static const char *const HOME_ICONS[CARD_COUNT] = {
+    LV_SYMBOL_WIFI, LV_SYMBOL_DIRECTORY, LV_SYMBOL_KEYBOARD,
+    LV_SYMBOL_SETTINGS, LV_SYMBOL_FILE};
+
+static const char *const HOME_KEYS[CARD_COUNT][3] = {
+    {"LINK", "RATE", "PROFILE"}, {"ID", "COUNT", "NAME"},
+    {"KEYS", "LAYER", "MODE"},   {"INPUT", "REPORT", "SAVE"},
+    {"BOARD", "MCU", "FIRMWARE"},
+};
+
+// The right column reads the model, so the menu says what the pages say.
+static void home_params(uint8_t item, char out[3][26]) {
+  switch (item) {
+  case 0:
+    snprintf(out[0], 26, "%s", s_model.link ? "live" : "waiting");
+    snprintf(out[1], 26, "%u Hz", (unsigned)s_model.report_hz);
+    snprintf(out[2], 26, "%s %u/%u", s_model.profile_name,
+             (unsigned)s_model.profile_id, (unsigned)s_model.profile_count);
+    break;
+  case 1:
+    snprintf(out[0], 26, "%u", (unsigned)s_model.profile_id);
+    snprintf(out[1], 26, "%u", (unsigned)s_model.profile_count);
+    snprintf(out[2], 26, "%s", s_model.profile_name);
+    break;
+  case 2:
+    snprintf(out[0], 26, "16");
+    snprintf(out[1], 26, "1");
+    snprintf(out[2], 26, "hold");
+    break;
+  case 3:
+    snprintf(out[0], 26, "button");
+    snprintf(out[1], 26, "%u Hz", (unsigned)s_model.report_hz);
+    snprintf(out[2], 26, "auto");
+    break;
+  default:
+    snprintf(out[0], 26, "%s", s_model.board);
+    snprintf(out[1], 26, "ESP32-S3");
+    snprintf(out[2], 26, "%s", BuildInfo::VERSION);
+    break;
   }
-  if (y > content - LIST_H) {
-    y = content - LIST_H;
-  }
-  return y;
 }
 
-static void list_update(bool animate) {
-  if (s_list == NULL) {
-    return;
+// The shortest distance from item i to the mark, so a step over either end
+// travels one place rather than the whole column.
+static float home_rel(int i) {
+  float rel = (float)i - s_scroll;
+  while (rel > CARD_COUNT / 2.0f) {
+    rel -= CARD_COUNT;
   }
-
-  lv_obj_scroll_to_y(s_list, list_offset(), animate ? LV_ANIM_ON : LV_ANIM_OFF);
-
-  if (s_selected == s_drawn) {
-    return;
+  while (rel < -CARD_COUNT / 2.0f) {
+    rel += CARD_COUNT;
   }
-  s_drawn = s_selected;
+  return rel;
+}
+
+static void home_layout(void) {
+  int selected = (int)std::floor(s_scroll + 0.5f) % CARD_COUNT;
+  if (selected < 0) {
+    selected += CARD_COUNT;
+  }
 
   for (int i = 0; i < CARD_COUNT; ++i) {
-    if (s_cards[i] == NULL) {
+    const float rel = home_rel(i);
+    const float away = rel < 0 ? -rel : rel;
+    lv_obj_t *card = s_home_cards[i];
+
+    if (away > HOME_VIS) {
+      lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
       continue;
     }
-    const bool on = i == s_selected;
-    fill(s_cards[i], on ? Theme::SURFACE_HI : Theme::SURFACE);
-    lv_obj_set_style_border_color(
-        s_cards[i], colour(on ? Theme::ACCENT : Theme::BORDER), 0);
-    lv_obj_set_style_text_color(s_card_titles[i],
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_HIDDEN);
+
+    const int bend = (int)(HOME_CURVE * rel * rel);
+    lv_obj_set_pos(card, 6 - bend,
+                   HOME_CENTER - HOME_CARD_H / 2 + (int)(rel * HOME_PITCH));
+    lv_obj_set_style_opa(card, (lv_opa_t)(255 - (int)(95 * away)), 0);
+
+    const bool on = i == selected;
+    fill(card, on ? Theme::SURFACE_HI : Theme::SURFACE);
+    lv_obj_set_style_border_width(card, on ? 0 : 1, 0);
+    lv_obj_set_style_text_color(s_home_titles[i],
                                 colour(on ? Theme::TEXT : Theme::MUTED), 0);
-    lv_obj_set_style_text_color(s_card_numbers[i],
+    lv_obj_set_style_text_color(s_home_icons[i],
                                 colour(on ? Theme::ACCENT : Theme::MUTED), 0);
   }
 
-  if (s_arc != NULL) {
-    lv_arc_set_value(s_arc,
-                     8 + (int32_t)(84 * s_selected) / (CARD_COUNT - 1));
+  if (selected != s_home_drawn) {
+    s_home_drawn = (uint8_t)selected;
+    char value[3][26];
+    home_params((uint8_t)selected, value);
+    for (int row = 0; row < 3; ++row) {
+      lv_label_set_text(s_home_keys[row], HOME_KEYS[selected][row]);
+      lv_label_set_text(s_home_values[row], value[row]);
+    }
   }
-  if (s_arc_title != NULL) {
-    lv_label_set_text(s_arc_title, MAIN_ITEMS[s_selected].label);
+
+  // The thumb stops at the ends of the rail: the spring is for the cards, not
+  // for running past the first or last place.
+  float t = s_scroll / (float)(CARD_COUNT - 1);
+  if (t < 0) {
+    t = 0;
   }
-  if (s_arc_index != NULL) {
-    char index[12];
-    snprintf(index, sizeof index, "%u/%u", (unsigned)s_selected + 1, CARD_COUNT);
-    lv_label_set_text(s_arc_index, index);
+  if (t > 1) {
+    t = 1;
   }
+  lv_obj_set_y(s_home_thumb, (int)(t * 76));
+
+  char index[12];
+  snprintf(index, sizeof index, "%02d / %02d", selected + 1, CARD_COUNT);
+  lv_label_set_text(s_home_index, index);
 }
 
-static void list_build(lv_obj_t *parent) {
-  static const char *titles[CARD_COUNT] = {"Status", "Profiles", "Keymap",
-                                           "Config", "About"};
-  static const char *subs[CARD_COUNT] = {"device", "saved", "inputs",
-                                         "keys", "build"};
+static void home_build(void) {
+  s_scroll = (float)s_selected;
 
-  s_list = lv_obj_create(parent);
-  lv_obj_remove_style_all(s_list);
-  lv_obj_set_pos(s_list, 0, 0);
-  lv_obj_set_size(s_list, LIST_W, LIST_H);
-  lv_obj_set_scroll_dir(s_list, LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(s_list, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_remove_flag(s_list, LV_OBJ_FLAG_SCROLL_ELASTIC);
-  lv_obj_set_style_anim_duration(s_list, 220, 0);
+  text(s_root, "ThetaGP", &lv_font_montserrat_20, Theme::ACCENT, 6, -4, 200);
+  s_home_index =
+      text(s_root, "01 / 05", &lv_font_montserrat_12, Theme::MUTED, 330, 3, 84);
+  lv_obj_set_style_text_align(s_home_index, LV_TEXT_ALIGN_RIGHT, 0);
+
+  lv_obj_t *rule = lv_obj_create(s_root);
+  lv_obj_remove_style_all(rule);
+  lv_obj_set_pos(rule, 6, 20);
+  lv_obj_set_size(rule, 408, 1);
+  lv_obj_set_style_bg_color(rule, colour(Theme::BORDER), 0);
+  lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
 
   for (int i = 0; i < CARD_COUNT; ++i) {
-    lv_obj_t *card = surface(s_list, 2, i * CARD_PITCH, CARD_W, CARD_H);
-
-    char number[8];
-    snprintf(number, sizeof number, "%02d", i + 1);
-    s_card_numbers[i] =
-        text(card, number, &lv_font_montserrat_12, Theme::ACCENT, 10, 7, 30);
-    s_card_titles[i] = text(card, titles[i], &lv_font_montserrat_14,
-                            Theme::TEXT, 10, 23, CARD_W - 20);
-    text(card, subs[i], &lv_font_montserrat_12, Theme::MUTED, 10, 44,
-         CARD_W - 20);
-    s_cards[i] = card;
+    lv_obj_t *card = surface(s_root, 0, 0, HOME_CARD_W, HOME_CARD_H);
+    lv_obj_set_style_radius(card, 7, 0);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    s_home_icons[i] = text(card, HOME_ICONS[i], &lv_font_montserrat_14,
+                           Theme::ACCENT, 24, 9, 18);
+    s_home_titles[i] = text(card, MAIN_ITEMS[i].label, &lv_font_montserrat_14,
+                            Theme::TEXT, 44, 9, HOME_CARD_W - 56);
+    s_home_cards[i] = card;
   }
+
+  lv_obj_t *block = lv_obj_create(s_root);
+  lv_obj_remove_style_all(block);
+  lv_obj_set_pos(block, 190, 0);
+  lv_obj_set_size(block, 224, 156);
+  lv_obj_set_style_bg_opa(block, LV_OPA_TRANSP, 0);
+  lv_obj_remove_flag(block, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(block, LV_OBJ_FLAG_SCROLLABLE);
+  for (int row = 0; row < 3; ++row) {
+    lv_obj_t *item = lv_obj_create(block);
+    lv_obj_remove_style_all(item);
+    lv_obj_set_pos(item, 0, 49 + row * 22);
+    lv_obj_set_size(item, 224, 18);
+    lv_obj_set_style_bg_opa(item, LV_OPA_TRANSP, 0);
+    lv_obj_remove_flag(item, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(item, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_layout(item, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(item, LV_FLEX_ALIGN_SPACE_BETWEEN,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(item, 10, 0);
+
+    s_home_keys[row] = lv_label_create(item);
+    lv_obj_set_style_text_font(s_home_keys[row], &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(s_home_keys[row], colour(Theme::MUTED), 0);
+    lv_obj_set_style_text_letter_space(s_home_keys[row], 1, 0);
+
+    s_home_values[row] = lv_label_create(item);
+    lv_obj_set_style_text_font(s_home_values[row], &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_home_values[row], colour(Theme::TEXT), 0);
+  }
+  for (int row = 0; row < 3; ++row) {
+    lv_obj_t *rule = lv_obj_create(block);
+    lv_obj_remove_style_all(rule);
+    lv_obj_set_pos(rule, 0, 46 + row * 22);
+    lv_obj_set_size(rule, 224, 1);
+    lv_obj_set_style_bg_color(rule, colour(Theme::BORDER), 0);
+    lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(rule, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(rule, LV_OBJ_FLAG_SCROLLABLE);
+  }
+  s_home_drawn = 0xFF;
+
+  lv_obj_t *track = lv_obj_create(s_root);
+  lv_obj_remove_style_all(track);
+  lv_obj_set_pos(track, 176, 32);
+  lv_obj_set_size(track, 2, 96);
+  lv_obj_set_style_radius(track, 1, 0);
+  fill(track, RAIL);
+  lv_obj_remove_flag(track, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
+
+  s_home_thumb = lv_obj_create(track);
+  lv_obj_remove_style_all(s_home_thumb);
+  lv_obj_set_pos(s_home_thumb, 0, 0);
+  lv_obj_set_size(s_home_thumb, 2, 20);
+  lv_obj_set_style_radius(s_home_thumb, 1, 0);
+  fill(s_home_thumb, THUMB);
+
+  lv_obj_t *footer = text(s_root, "ESP32-S3  COPROCESSOR",
+                          &lv_font_montserrat_12, Theme::MUTED, 190, 120, 224);
+  lv_obj_set_style_text_align(footer, LV_TEXT_ALIGN_RIGHT, 0);
 }
 
-// A label centred inside the arc.
-static lv_obj_t *caption(lv_obj_t *parent, const char *value,
-                         const lv_font_t *font, uint32_t rgb, int y) {
-  lv_obj_t *label = lv_label_create(parent);
-  lv_label_set_text(label, value);
-  lv_obj_set_style_text_font(label, font, 0);
-  lv_obj_set_style_text_color(label, colour(rgb), 0);
-  lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_pos(label, ARC_X, y);
-  lv_obj_set_width(label, ARC_SIZE);
-  return label;
+// An underdamped spring: the column and the thumb reach the next place a
+// little early, then settle back into it instead of stopping dead.
+static int32_t home_path(const lv_anim_t *anim) {
+  const float t = (float)anim->act_time / (float)anim->duration;
+  const float settle =
+      1.0f - std::exp(-6.0f * t) *
+                 (std::cos(9.0f * t) + 0.67f * std::sin(9.0f * t));
+  return anim->start_value +
+         (int32_t)((float)(anim->end_value - anim->start_value) * settle);
 }
 
-static void arc_build(lv_obj_t *parent) {
-  s_arc = lv_arc_create(parent);
-  lv_obj_set_pos(s_arc, ARC_X, ARC_Y);
-  lv_obj_set_size(s_arc, ARC_SIZE, ARC_SIZE);
-  lv_obj_remove_flag(s_arc, LV_OBJ_FLAG_CLICKABLE);
-  lv_arc_set_rotation(s_arc, 135);
-  lv_arc_set_bg_angles(s_arc, 0, 270);
-  lv_obj_remove_style(s_arc, NULL, LV_PART_KNOB);
+static void home_anim_cb(void *var, int32_t value) {
+  (void)var;
+  const float t = (float)value / 1000.0f;
+  s_scroll = s_anim_from + s_anim_diff * t;
+  home_layout();
+}
 
-  lv_obj_set_style_bg_opa(s_arc, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_border_width(s_arc, 0, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(s_arc, 6, LV_PART_MAIN);
-  lv_obj_set_style_arc_color(s_arc, colour(Theme::BORDER), LV_PART_MAIN);
-  lv_obj_set_style_arc_rounded(s_arc, false, LV_PART_MAIN);
+static void home_anim_done(lv_anim_t *anim) {
+  (void)anim;
+  float pos = s_scroll;
+  pos -= std::floor(pos / CARD_COUNT) * CARD_COUNT;
+  int selected = (int)std::floor(pos + 0.5f) % CARD_COUNT;
+  s_scroll = (float)selected;
+  s_selected = (uint8_t)selected;
+  home_layout();
+}
 
-  lv_obj_set_style_arc_width(s_arc, 6, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_color(s_arc, colour(Theme::ACCENT), LV_PART_INDICATOR);
-  lv_obj_set_style_arc_rounded(s_arc, false, LV_PART_INDICATOR);
+// One place along the column, along the arc and back into range.
+static void home_step(int step) {
+  s_selected =
+      (uint8_t)((s_selected + CARD_COUNT + step) % CARD_COUNT);
 
-  s_arc_title = caption(parent, MAIN_ITEMS[s_selected].label,
-                        &lv_font_montserrat_14, Theme::TEXT, 48);
-  s_arc_index = caption(parent, "1/5", &lv_font_montserrat_12, Theme::MUTED, 70);
+  lv_anim_delete(&s_scroll, NULL);
+  s_anim_from = s_scroll;
+  s_anim_diff = (float)step;
+
+  lv_anim_t anim;
+  lv_anim_init(&anim);
+  lv_anim_set_var(&anim, &s_scroll);
+  lv_anim_set_values(&anim, 0, 1000);
+  lv_anim_set_exec_cb(&anim, home_anim_cb);
+  lv_anim_set_completed_cb(&anim, home_anim_done);
+  lv_anim_set_duration(&anim, 480);
+  lv_anim_set_path_cb(&anim, home_path);
+  lv_anim_start(&anim);
 }
 
 // ── rendering ──
 
 static void render(void) {
+  lv_anim_delete(&s_scroll, NULL);
+  if (s_splash.cover != NULL) {
+    // The page is about to be rebuilt under the splash: drop it early so the
+    // fade callbacks never touch objects the clean is about to delete.
+    lv_anim_delete(&s_splash, NULL);
+    s_splash.cover = NULL;
+    s_splash.logo = NULL;
+  }
   lv_obj_clean(s_root);
-  s_list = NULL;
-  s_arc = NULL;
-  s_arc_title = NULL;
-  s_arc_index = NULL;
 
   if (s_page == &PAGE_MAIN) {
-    list_build(s_root);
-    arc_build(s_root);
-    s_drawn = 0xFF;
-    list_update(false);
+    home_build();
+    home_layout();
     return;
   }
-
 
   lv_obj_t *mark = lv_obj_create(s_root);
   lv_obj_remove_style_all(mark);
@@ -416,21 +567,35 @@ static void render(void) {
 
 static void show(const Page *page) {
   s_page = page;
-  s_selected = 0;
+  if (page == &PAGE_MAIN) {
+    s_selected = (uint8_t)((int)(s_scroll + 0.5f) % CARD_COUNT);
+  } else if (page == &PAGE_PROFILES) {
+    s_selected = s_model.profile_id > 0 ? (uint8_t)(s_model.profile_id - 1) : 0;
+    s_selected %= PAGE_PROFILES.count;
+  } else {
+    s_selected = 0;
+  }
+  render();
+}
+
+static void move(int step) {
+  if (s_page == &PAGE_MAIN) {
+    home_step(step);
+    return;
+  }
+  if (s_page->count == 0) {
+    return;
+  }
+  s_selected = (uint8_t)((s_selected + s_page->count + step) % s_page->count);
   render();
 }
 
 void next() {
-  if (s_page == &PAGE_MAIN) {
-    s_selected = (uint8_t)((s_selected + 1) % CARD_COUNT);
-    list_update(true);
-    return;
-  }
-  if (s_page->items == NULL || s_page->count == 0) {
-    return;
-  }
-  s_selected = (uint8_t)((s_selected + 1) % s_page->count);
-  render();
+  move(1);
+}
+
+void prev() {
+  move(-1);
 }
 
 void enter() {
@@ -440,6 +605,12 @@ void enter() {
       s_stack[s_depth++] = s_page;
       show(item->page);
     }
+    return;
+  }
+
+  if (s_page == &PAGE_PROFILES) {
+    setProfile((uint8_t)(s_selected + 1), 3, PROFILE_NAMES[s_selected]);
+    render();
     return;
   }
 
@@ -461,6 +632,64 @@ void back() {
   }
   const Page *page = s_stack[--s_depth];
   show(page);
+}
+
+// ── the splash, once at power-up ──
+
+static void splash_opa(void *var, int32_t value) {
+  Splash *splash = (Splash *)var;
+  const lv_opa_t opa = (lv_opa_t)value;
+  lv_obj_set_style_bg_opa(splash->cover, opa, 0);
+  lv_obj_set_style_image_opa(splash->logo, opa, 0);
+}
+
+static void splash_gone(lv_anim_t *anim) {
+  (void)anim;
+  if (s_splash.cover != NULL) {
+    lv_obj_delete(s_splash.cover);
+  }
+  s_splash.cover = NULL;
+  s_splash.logo = NULL;
+}
+
+static void splash(void) {
+  lv_obj_t *cover = lv_obj_create(s_root);
+  lv_obj_remove_style_all(cover);
+  lv_obj_set_pos(cover, 0, 0);
+  lv_obj_set_size(cover, 420, 140);
+  lv_obj_set_style_bg_color(cover, colour(Theme::BG), 0);
+  lv_obj_remove_flag(cover, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(cover, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *logo = lv_image_create(cover);
+  lv_image_set_src(logo, &thetagp_logo);
+  lv_obj_set_style_image_recolor(logo, lv_color_hex(0x7EB4F2), 0);
+  lv_obj_set_style_image_recolor_opa(logo, LV_OPA_COVER, 0);
+  lv_obj_align(logo, LV_ALIGN_CENTER, 0, 0);
+
+  s_splash.cover = cover;
+  s_splash.logo = logo;
+  splash_opa(&s_splash, LV_OPA_TRANSP);
+
+  lv_anim_t in;
+  lv_anim_init(&in);
+  lv_anim_set_var(&in, &s_splash);
+  lv_anim_set_values(&in, LV_OPA_TRANSP, LV_OPA_COVER);
+  lv_anim_set_exec_cb(&in, splash_opa);
+  lv_anim_set_path_cb(&in, lv_anim_path_ease_in_out);
+  lv_anim_set_duration(&in, 400);
+  lv_anim_start(&in);
+
+  lv_anim_t out;
+  lv_anim_init(&out);
+  lv_anim_set_var(&out, &s_splash);
+  lv_anim_set_values(&out, LV_OPA_COVER, LV_OPA_TRANSP);
+  lv_anim_set_exec_cb(&out, splash_opa);
+  lv_anim_set_path_cb(&out, lv_anim_path_ease_in_out);
+  lv_anim_set_delay(&out, 1800);
+  lv_anim_set_duration(&out, 550);
+  lv_anim_set_completed_cb(&out, splash_gone);
+  lv_anim_start(&out);
 }
 
 // ── the board button, until the link's own buttons arrive ──
@@ -504,6 +733,7 @@ void init() {
   lv_timer_create(button_timer, 20, NULL);
 
   show(&PAGE_MAIN);
+  splash();
 }
 
 void setLink(bool up) {

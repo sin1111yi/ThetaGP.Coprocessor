@@ -88,6 +88,7 @@ endif()
 add_executable(simulate
   main_sim.cpp
   ../main/ui/menu.cpp
+  ../main/ui/logo.c
 )
 
 # The board's GPIO calls are answered by the stubs under include/, and the
