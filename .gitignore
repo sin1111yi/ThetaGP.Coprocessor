@@ -1,3 +1,6 @@
+# Fetched at configure time (cmake/lvgl.cmake)
+.deps/
+
 # Build trees
 build/
 simulate/build/

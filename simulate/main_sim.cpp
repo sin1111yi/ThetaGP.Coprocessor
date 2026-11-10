@@ -20,22 +20,17 @@
  */
 
 // A host build of the menu: the same ui/menu.cpp the firmware links, drawn
-// here instead of sent over SPI. Frames leave on stdout as a header and a
-// window of RGB565, and navigation keys arrive on stdin, so the host side is a
-// pipe and nothing else. That is what lets it run on Windows as well.
+// into a window here instead of sent over SPI. LVGL renders into one buffer of
+// its own; the window only blits it, so nothing about the firmware's drawing
+// changes when it runs on a desk.
 
-#include <atomic>
+#include <SDL2/SDL.h>
+
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <thread>
-
-#ifdef _WIN32
-#include <fcntl.h>
-#include <io.h>
-#endif
 
 #include "conf/board.h"
 #include "lvgl.h"
@@ -46,18 +41,12 @@
 #define SIM_W LCD_V_RES
 #define SIM_H LCD_H_RES
 
-#define FRAME_MAGIC 0x54475053u
-
 namespace {
 
-struct FrameHeader {
-  uint32_t magic;
-  uint32_t width;
-  uint32_t height;
-};
-
 uint8_t *s_draw;
-std::atomic<int> s_key{-1};
+SDL_Renderer *s_renderer;
+SDL_Texture *s_texture;
+bool s_quit;
 
 uint32_t tickMs() {
   const auto now = std::chrono::steady_clock::now().time_since_epoch();
@@ -65,17 +54,22 @@ uint32_t tickMs() {
       .count();
 }
 
-void publish() {
-  const FrameHeader header = {FRAME_MAGIC, SIM_W, SIM_H};
-  std::fwrite(&header, sizeof header, 1, stdout);
-  std::fwrite(s_draw, (size_t)SIM_W * SIM_H * 2, 1, stdout);
-  std::fflush(stdout);
+// LVGL draws RGB565 little endian, which is the format the texture holds.
+int pixelFormat() { return SDL_PIXELFORMAT_RGB565; }
+
+void present() {
+  SDL_UpdateTexture(s_texture, nullptr, s_draw, SIM_W * 2);
+  SDL_RenderClear(s_renderer);
+  SDL_RenderCopy(s_renderer, s_texture, nullptr, nullptr);
+  SDL_RenderPresent(s_renderer);
 }
 
 void flushCb(lv_display_t *disp, const lv_area_t *area, uint8_t *px) {
   (void)area;
   (void)px;
-  publish();
+  if (s_renderer != nullptr) {
+    present();
+  }
   lv_display_flush_ready(disp);
 }
 
@@ -83,79 +77,97 @@ void createDisplay() {
   lv_display_t *disp = lv_display_create(SIM_W, SIM_H);
   lv_display_set_flush_cb(disp, flushCb);
   // One buffer holding the whole surface: every flush is the whole picture, so
-  // the reader never has to reassemble a partial one.
+  // the blit never has to assemble a partial one.
   lv_display_set_buffers(disp, s_draw, NULL, SIM_W * SIM_H * 2,
                          LV_DISPLAY_RENDER_MODE_FULL);
   lv_display_set_default(disp);
 }
 
-// A reader thread, so the loop that draws never blocks on a keyboard that has
-// nothing to say. One pending key is enough: the menu advances a step at a
-// time.
-void readKeys() {
-  for (;;) {
-    const int key = std::getchar();
-    if (key == EOF) {
-      return;
-    }
-    if (key == 'n' || key == 'e' || key == 'b') {
-      s_key.store(key);
+// The keys the board's one button stands in for, plus a way out.
+void handleKeys() {
+  SDL_Event event;
+  while (SDL_PollEvent(&event) != 0) {
+    if (event.type == SDL_QUIT) {
+      s_quit = true;
+    } else if (event.type == SDL_KEYDOWN) {
+      switch (event.key.keysym.sym) {
+      case SDLK_n:
+      case SDLK_RIGHT:
+      case SDLK_DOWN:
+        ThetaGP::Ui::Menu::next();
+        break;
+      case SDLK_e:
+      case SDLK_RETURN:
+        ThetaGP::Ui::Menu::enter();
+        break;
+      case SDLK_b:
+      case SDLK_LEFT:
+      case SDLK_ESCAPE:
+        ThetaGP::Ui::Menu::back();
+        break;
+      case SDLK_q:
+        s_quit = true;
+        break;
+      default:
+        break;
+      }
     }
   }
 }
 
-void applyKey() {
-  switch (s_key.exchange(-1)) {
-  case 'n':
-    ThetaGP::Ui::Menu::next();
-    break;
-  case 'e':
-    ThetaGP::Ui::Menu::enter();
-    break;
-  case 'b':
-    ThetaGP::Ui::Menu::back();
-    break;
-  default:
-    break;
+// Writes the surface as a PPM, for a machine with no display to render on: the
+// picture can then be looked at as a file.
+bool dumpPpm(const char *path) {
+  FILE *file = std::fopen(path, "wb");
+  if (file == nullptr) {
+    std::fprintf(stderr, "simulate: cannot write %s\n", path);
+    return false;
   }
+  std::fprintf(file, "P6\n%d %d\n255\n", SIM_W, SIM_H);
+
+  uint8_t *row = (uint8_t *)std::malloc((size_t)SIM_W * 3);
+  for (int y = 0; y < SIM_H; ++y) {
+    for (int x = 0; x < SIM_W; ++x) {
+      const uint16_t pixel = ((const uint16_t *)s_draw)[y * SIM_W + x];
+      row[x * 3 + 0] = (uint8_t)(((pixel >> 11) & 0x1F) << 3);
+      row[x * 3 + 1] = (uint8_t)(((pixel >> 5) & 0x3F) << 2);
+      row[x * 3 + 2] = (uint8_t)((pixel & 0x1F) << 3);
+    }
+    std::fwrite(row, (size_t)SIM_W * 3, 1, file);
+  }
+  std::free(row);
+  std::fclose(file);
+  std::printf("simulate: wrote %s\n", path);
+  return true;
 }
 
-// A rectangle in each corner and a column at a known place, to tell a broken
-// pipeline from a broken layout.
-void testPattern() {
-  lv_obj_t *scr = lv_screen_active();
-  lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
-  lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
-
-  struct Box {
-    int x, y, w, h;
-    lv_color_t colour;
-  } boxes[] = {
-      {0, 0, 20, 10, lv_color_make(255, 0, 0)},
-      {SIM_W - 20, SIM_H - 10, 20, 10, lv_color_make(0, 255, 0)},
-      {100, 0, 4, SIM_H, lv_color_make(255, 255, 255)},
-  };
-
-  for (const Box &box : boxes) {
-    lv_obj_t *obj = lv_obj_create(scr);
-    lv_obj_remove_style_all(obj);
-    lv_obj_set_pos(obj, box.x, box.y);
-    lv_obj_set_size(obj, box.w, box.h);
-    lv_obj_set_style_bg_color(obj, box.colour, 0);
-    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
-  }
-  lv_refr_now(NULL);
-  publish();
+void usage(const char *argv0) {
+  std::printf("usage: %s [--scale N] [--dump FILE.ppm]\n", argv0);
+  std::printf("  n / right / down   next card\n"
+              "  e / return         enter the page\n"
+              "  b / left / escape  back\n"
+              "  q                  quit\n");
 }
 
 } // namespace
 
 int main(int argc, char **argv) {
-#ifdef _WIN32
-  // A frame is bytes, not text: keep the C runtime from translating them.
-  _setmode(_fileno(stdout), _O_BINARY);
-  _setmode(_fileno(stdin), _O_BINARY);
-#endif
+  int scale = 2;
+  const char *dump = nullptr;
+
+  for (int i = 1; i < argc; ++i) {
+    if (std::strcmp(argv[i], "--scale") == 0 && i + 1 < argc) {
+      scale = std::atoi(argv[++i]);
+      if (scale < 1) {
+        scale = 1;
+      }
+    } else if (std::strcmp(argv[i], "--dump") == 0 && i + 1 < argc) {
+      dump = argv[++i];
+    } else {
+      usage(argv[0]);
+      return 2;
+    }
+  }
 
   s_draw = (uint8_t *)std::calloc(1, (size_t)SIM_W * SIM_H * 2);
   if (s_draw == nullptr) {
@@ -163,30 +175,62 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  // A dump is a picture of one state, so it configures the panel the way the
+  // firmware does and writes what LVGL drew.
+  if (dump == nullptr) {
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+      std::fprintf(stderr, "simulate: SDL: %s\n", SDL_GetError());
+      return 1;
+    }
+    SDL_Window *window =
+        SDL_CreateWindow("ThetaGP.Coprocessor", SDL_WINDOWPOS_CENTERED,
+                         SDL_WINDOWPOS_CENTERED, SIM_W * scale, SIM_H * scale,
+                         SDL_WINDOW_SHOWN);
+    if (window == nullptr) {
+      std::fprintf(stderr, "simulate: window: %s\n", SDL_GetError());
+      return 1;
+    }
+    s_renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (s_renderer == nullptr) {
+      s_renderer = SDL_CreateRenderer(window, -1, 0);
+    }
+    if (s_renderer == nullptr) {
+      std::fprintf(stderr, "simulate: renderer: %s\n", SDL_GetError());
+      return 1;
+    }
+    s_texture = SDL_CreateTexture(s_renderer, pixelFormat(),
+                                  SDL_TEXTUREACCESS_STREAMING, SIM_W, SIM_H);
+    if (s_texture == nullptr) {
+      std::fprintf(stderr, "simulate: texture: %s\n", SDL_GetError());
+      return 1;
+    }
+  }
+
   lv_init();
   lv_tick_set_cb(tickMs);
   createDisplay();
-
-  if (argc > 1 && std::strcmp(argv[1], "--test") == 0) {
-    testPattern();
-    std::fprintf(stderr, "simulate: test pattern\n");
-    for (;;) {
-      std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
-  }
 
   ThetaGP::Ui::Menu::init();
   ThetaGP::Ui::Menu::setLink(false);
   ThetaGP::Ui::Menu::setProfile(1, 2, "Main");
   ThetaGP::Ui::Menu::setReportHz(8000);
   lv_refr_now(NULL);
-  publish();
 
-  std::thread reader(readKeys);
-  reader.detach();
+  if (dump != nullptr) {
+    const bool ok = dumpPpm(dump);
+    if (s_texture != nullptr) {
+      SDL_DestroyTexture(s_texture);
+      SDL_DestroyRenderer(s_renderer);
+      SDL_Quit();
+    }
+    return ok ? 0 : 1;
+  }
 
   for (;;) {
-    applyKey();
+    handleKeys();
+    if (s_quit) {
+      break;
+    }
     uint32_t idle = lv_timer_handler();
     if (idle < 2) {
       idle = 2;
@@ -194,6 +238,11 @@ int main(int argc, char **argv) {
     if (idle > 20) {
       idle = 20;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(idle));
+    SDL_Delay(idle);
   }
+
+  SDL_DestroyTexture(s_texture);
+  SDL_DestroyRenderer(s_renderer);
+  SDL_Quit();
+  return 0;
 }

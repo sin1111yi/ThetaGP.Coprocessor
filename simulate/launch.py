@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Build the host build of the menu and serve it.
+"""Build the host build of the menu and run it.
 
-One entry point on every platform: it reads what this machine is, finds CMake
-and a compiler, picks a generator, builds `simulate/`, then hands over to
-`stream.py`. A machine without the toolchain is told what is missing rather
-than handed a compiler error, because this is the script people run first.
+One entry point on every platform: it reads what this machine is, finds CMake,
+a compiler and SDL2, builds `simulate/`, then runs it. A machine without the
+toolchain is told what is missing rather than handed a compiler error, because
+this is the script people run first.
 """
 
 import argparse
@@ -56,6 +56,20 @@ def binary(multiconfig):
     return os.path.join(BUILD, name)
 
 
+def have_sdl2():
+    """SDL2 as a CMake package, as pkg-config, or not at all."""
+    if find(["sdl2-config"]):
+        return True
+    probe = subprocess.run(["pkg-config", "--exists", "sdl2"],
+                           stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+    if probe.returncode == 0:
+        return True
+    # A Windows install usually unpacks the development package and is pointed
+    # at it with SDL2_DIR, which CMake looks up itself.
+    return bool(os.environ.get("SDL2_DIR"))
+
+
 def run(command):
     print("simulate: " + " ".join(command), flush=True)
     return subprocess.call(command)
@@ -63,7 +77,7 @@ def run(command):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Build the host build of the menu and serve it.")
+        description="Build the host build of the menu and run it.")
     parser.add_argument("--clean", action="store_true",
                         help="throw the build tree away first")
     args, rest = parser.parse_known_args()
@@ -74,17 +88,10 @@ def main():
               "https://cmake.org/download/")
         return 1
 
-    if not os.path.exists(os.path.join(TREE, "components", "lvgl",
-                                       "CMakeLists.txt")):
-        print("simulate: components/lvgl is not there. Run "
-              "`git submodule update --init` in %s first." % TREE)
-        return 1
-
-    try:
-        import PIL  # noqa: F401
-    except ImportError:
-        print("simulate: Pillow is missing. Run "
-              "`%s -m pip install pillow`." % sys.executable)
+    if not have_sdl2():
+        print("simulate: SDL2 is missing. Install its development package "
+              "(libsdl2-dev, sdl2, brew install sdl2), or point SDL2_DIR at an "
+              "unpacked SDL2 development tree.")
         return 1
 
     flags, multiconfig = generator()
@@ -106,9 +113,7 @@ def main():
     if run(build) != 0:
         return 1
 
-    server = [sys.executable, os.path.join(HERE, "stream.py"),
-              "--sim", binary(multiconfig)] + rest
-    return subprocess.call(server)
+    return subprocess.call([binary(multiconfig)] + rest)
 
 
 if __name__ == "__main__":

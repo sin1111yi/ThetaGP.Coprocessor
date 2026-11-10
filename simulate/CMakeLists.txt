@@ -17,8 +17,8 @@
 # If not, see <https://www.gnu.org/licenses/>.
 ]]
 
-# The host build of the menu: LVGL compiles for the PC, ui/menu.cpp is the same
-# source the firmware links, and the frame lands in a file stream.py serves.
+# The host build of the menu: LVGL compiles for this machine, ui/menu.cpp is the
+# same source the firmware links, and the window is the panel.
 cmake_minimum_required(VERSION 3.16)
 
 project(thetagp_simulate C CXX)
@@ -31,8 +31,21 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../components/lvgl
-                 ${CMAKE_CURRENT_BINARY_DIR}/lvgl)
+# LVGL is fetched, not carried: see cmake/lvgl.cmake.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/lvgl.cmake)
+thetagp_lvgl(${CMAKE_CURRENT_SOURCE_DIR}/../.deps/lvgl)
+add_subdirectory(${THETAGP_LVGL_DIR} ${CMAKE_CURRENT_BINARY_DIR}/lvgl)
+
+# The window the panel is blitted into. SDL2 ships as a CMake package on most
+# systems and as a pkg-config module on the rest.
+find_package(SDL2 QUIET)
+if(SDL2_FOUND AND TARGET SDL2::SDL2)
+  set(THETAGP_SDL2 SDL2::SDL2)
+else()
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+  set(THETAGP_SDL2 PkgConfig::SDL2)
+endif()
 
 add_executable(simulate
   main_sim.cpp
@@ -40,7 +53,8 @@ add_executable(simulate
 )
 
 # The board's GPIO calls are answered by the stubs under include/, and the
-# firmware's headers are reached the way they are inside the tree: from src/.
+# firmware's headers are reached the way they are inside the component: from
+# main/.
 target_include_directories(simulate PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../main
@@ -51,4 +65,8 @@ target_compile_definitions(lvgl PUBLIC
 target_compile_definitions(simulate PRIVATE
   LV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/lv_conf.h")
 
-target_link_libraries(simulate PRIVATE lvgl m)
+target_link_libraries(simulate PRIVATE lvgl ${THETAGP_SDL2})
+if(NOT MSVC)
+  # MSVC has no separate libm; the C runtime carries it.
+  target_link_libraries(simulate PRIVATE m)
+endif()
