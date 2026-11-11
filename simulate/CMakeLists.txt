@@ -88,6 +88,7 @@ endif()
 add_executable(simulate
   main_sim.cpp
   ../main/ui/menu.cpp
+  ../main/ui/home.cpp
   ../main/ui/logo.c
 )
 

@@ -24,6 +24,7 @@ idf_component_register(
          "drivers/display/lvgl_display.cpp"
          "drivers/link/link.cpp"
          "ui/menu.cpp"
+         "ui/home.cpp"
          "ui/logo.c"
     INCLUDE_DIRS "."
     REQUIRES lvgl esp_timer esp_driver_spi esp_driver_gpio esp_driver_uart)

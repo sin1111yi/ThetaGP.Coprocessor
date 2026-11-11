@@ -21,13 +21,12 @@
 
 #include "ui/menu.h"
 
-#include <cmath>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 
 #include "build_info.h"
 #include "conf/board.h"
+#include "ui/home.h"
 #include "ui/logo.h"
 #include "ui/theme.h"
 
@@ -68,29 +67,6 @@ static const Page *s_page;
 static const Page *s_stack[6];
 static uint8_t s_depth;
 static uint8_t s_selected;
-
-// The main menu is three columns: names on the left, a progress bar in the
-// middle, the chosen page's parameters on the right. The columns travel along
-// an arc as the selection moves, and wrap around at either end.
-#define CARD_COUNT  5
-#define HOME_CARD_W 150
-#define HOME_CARD_H 34
-#define HOME_PITCH  36
-#define HOME_CENTER 60
-#define HOME_CURVE  22
-#define HOME_VIS    1.35f
-
-static float s_scroll;
-static float s_anim_from;
-static float s_anim_diff;
-static lv_obj_t *s_home_cards[CARD_COUNT];
-static lv_obj_t *s_home_titles[CARD_COUNT];
-static lv_obj_t *s_home_icons[CARD_COUNT];
-static lv_obj_t *s_home_keys[3];
-static lv_obj_t *s_home_values[3];
-static lv_obj_t *s_home_thumb;
-static lv_obj_t *s_home_ticker;
-static uint8_t s_home_drawn = 0xFF;
 
 // The wordmark fades in over the menu, holds, then fades out and uncovers it.
 struct Splash {
@@ -231,454 +207,9 @@ static const Item MAIN_ITEMS[] = {
 
 static const Page PAGE_MAIN = {"Menu", NULL, MAIN_ITEMS, 5};
 
-// ── the main menu ──
-
-// The bar's amber thumb and the dark rail it runs on.
-#define THUMB 0xFDBA74
-#define RAIL  0x3A2A1F
-
-static const char *const HOME_ICONS[CARD_COUNT] = {
-    LV_SYMBOL_WIFI, LV_SYMBOL_DIRECTORY, LV_SYMBOL_KEYBOARD, LV_SYMBOL_SETTINGS,
-    LV_SYMBOL_FILE};
-
-static const char *const HOME_KEYS[CARD_COUNT][3] = {
-    {"LINK", "RATE", "PROFILE"},  {"ID", "COUNT", "NAME"},
-    {"KEYS", "LAYER", "MODE"},    {"INPUT", "REPORT", "SAVE"},
-    {"BOARD", "MCU", "FIRMWARE"},
-};
-
-// The right column reads the model, so the menu says what the pages say.
-static void home_params(uint8_t item, char out[3][26]) {
-  switch (item) {
-  case 0:
-    snprintf(out[0], 26, "%s", s_model.link ? "live" : "waiting");
-    snprintf(out[1], 26, "%u Hz", (unsigned)s_model.report_hz);
-    snprintf(out[2], 26, "%s %u/%u", s_model.profile_name,
-             (unsigned)s_model.profile_id, (unsigned)s_model.profile_count);
-    break;
-  case 1:
-    snprintf(out[0], 26, "%u", (unsigned)s_model.profile_id);
-    snprintf(out[1], 26, "%u", (unsigned)s_model.profile_count);
-    snprintf(out[2], 26, "%s", s_model.profile_name);
-    break;
-  case 2:
-    snprintf(out[0], 26, "16");
-    snprintf(out[1], 26, "1");
-    snprintf(out[2], 26, "hold");
-    break;
-  case 3:
-    snprintf(out[0], 26, "button");
-    snprintf(out[1], 26, "%u Hz", (unsigned)s_model.report_hz);
-    snprintf(out[2], 26, "auto");
-    break;
-  default:
-    snprintf(out[0], 26, "%s", s_model.board);
-    snprintf(out[1], 26, "ESP32-S3");
-    snprintf(out[2], 26, "%s", BuildInfo::VERSION);
-    break;
-  }
-}
-
-// The shortest distance from item i to the mark, so a step over either end
-// travels one place rather than the whole column.
-static float home_rel(int i) {
-  float rel = (float)i - s_scroll;
-  while (rel > CARD_COUNT / 2.0f) {
-    rel -= CARD_COUNT;
-  }
-  while (rel < -CARD_COUNT / 2.0f) {
-    rel += CARD_COUNT;
-  }
-  return rel;
-}
-
-static void home_layout(void) {
-  int selected = (int)std::floor(s_scroll + 0.5f) % CARD_COUNT;
-  if (selected < 0) {
-    selected += CARD_COUNT;
-  }
-
-  for (int i = 0; i < CARD_COUNT; ++i) {
-    const float rel = home_rel(i);
-    const float away = rel < 0 ? -rel : rel;
-    lv_obj_t *card = s_home_cards[i];
-
-    if (away > HOME_VIS) {
-      lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
-      continue;
-    }
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_HIDDEN);
-
-    const int bend = (int)(HOME_CURVE * rel * rel);
-    lv_obj_set_pos(card, 6 - bend,
-                   HOME_CENTER - HOME_CARD_H / 2 + (int)(rel * HOME_PITCH));
-    lv_obj_set_style_opa(card, (lv_opa_t)(255 - (int)(95 * away)), 0);
-
-    const bool on = i == selected;
-    fill(card, on ? Theme::SURFACE_HI : Theme::SURFACE);
-    lv_obj_set_style_border_width(card, on ? 0 : 1, 0);
-    lv_obj_set_style_text_color(s_home_titles[i],
-                                colour(on ? Theme::TEXT : Theme::MUTED), 0);
-    lv_obj_set_style_text_color(s_home_icons[i],
-                                colour(on ? Theme::ACCENT : Theme::MUTED), 0);
-  }
-
-  if (selected != s_home_drawn) {
-    s_home_drawn = (uint8_t)selected;
-    char value[3][26];
-    home_params((uint8_t)selected, value);
-    for (int row = 0; row < 3; ++row) {
-      lv_label_set_text(s_home_keys[row], HOME_KEYS[selected][row]);
-      lv_label_set_text(s_home_values[row], value[row]);
-    }
-  }
-
-  // The thumb stops at the ends of the rail: the spring is for the cards, not
-  // for running past the first or last place.
-  float t = s_scroll / (float)(CARD_COUNT - 1);
-  if (t < 0) {
-    t = 0;
-  }
-  if (t > 1) {
-    t = 1;
-  }
-  lv_obj_set_y(s_home_thumb, (int)(t * 76));
-}
-
-// ── the link read-out ──
-
-// ── the bottom line ──
-// One line at the foot of the panel: the panel's own name while it is alone,
-// and both names rolling upwards through it once the board answers.
-#define LINK_SLOT_X 0
-#define LINK_SLOT_Y 121
-#define LINK_SLOT_W 420
-#define LINK_SLOT_H 18
-
-static char s_bandLine[128];
-// Whether the band turns: it only does once the main board is answering.
-static bool s_bandRolling = false;
-static lv_obj_t *s_home_band;
-static uint8_t *s_bandPixels;
-static void band_free(void);
-static void band_build(const char *first, const char *second);
-static void band_timer(lv_timer_t *timer);
-static int32_t band_path(const lv_anim_t *anim);
-
-// Paints the corner for the state the model carries, once per change. The band
-// rolls from the first boot: the panel's own name until the main board answers,
-// then the two names turn by turn.
-static void home_link_show(void) {
-  char first[64];
-  char second[64] = "ThetaGP.Coprocessor";
-
-  const bool identified = s_model.link && s_model.peer_id[0] != '\0';
-  if (identified) {
-    snprintf(first, sizeof first, "%s %s", s_model.peer_id,
-             s_model.peer_version);
-  } else {
-    // Alone, the panel holds its own name still: nothing about a link that is
-    // not there is worth a moving line.
-    snprintf(first, sizeof first, "ThetaGP.Coprocessor");
-    snprintf(second, sizeof second, "ThetaGP.Coprocessor");
-  }
-
-  char key[128];
-  snprintf(key, sizeof key, "%s|%s", first, second);
-  if (std::strcmp(s_bandLine, key) == 0) {
-    return;
-  }
-  std::strncpy(s_bandLine, key, sizeof s_bandLine - 1);
-  s_bandLine[sizeof s_bandLine - 1] = '\0';
-  band_build(first, second);
-
-  // The band rests on its first entry and the timer turns it: the answer is
-  // worth reading before it scrolls away.
-  s_bandRolling = identified;
-}
-
-// The band is drawn once into a bitmap and slid, not drawn again every frame:
-// blending glyphs costs milliseconds, copying a strip costs tens of
-// microseconds, and a slow crawl is only smooth when every step lands on time.
-#define BAND_TEXT  14               // the glyphs of Montserrat 12
-#define BAND_PAD   2                // air above and below every line
-#define BAND_LIFT  2                // the glyphs sit low in their own box
-#define BAND_LINE  (BAND_TEXT + BAND_PAD * 2)
-#define BAND_LINES 3                // the pair, and the first one again
-#define BAND_H    (BAND_LINE * BAND_LINES)
-#define BAND_MS   900   // one line's turn, damped
-#define BAND_REST 2100  // how long a line is given once it is in place
-#define BAND_TURN (BAND_MS + BAND_REST)
-
-static int s_bandY;  // 0 or -BAND_LINE: which of the two lines is in the window
-
-static void band_y_cb(void *var, int32_t value) {
-  (void)var;
-  if (s_home_band != NULL) {
-    lv_obj_set_y(s_home_band, (int)value);
-  }
-}
-
-// One line leaves the window and the next takes its place; after two of those
-// the content is where it started, so the bitmap rewinds under it unseen.
-static void band_step_done(lv_anim_t *anim) {
-  (void)anim;
-  s_bandY = s_bandY - BAND_LINE;
-  if (s_bandY <= -(BAND_LINE * 2)) {
-    s_bandY = 0;
-  }
-  if (s_home_band != NULL) {
-    lv_obj_set_y(s_home_band, s_bandY);
-  }
-}
-
-static void band_timer(lv_timer_t *timer) {
-  (void)timer;
-  if (s_home_band == NULL || !s_bandRolling) {
-    return;
-  }
-
-  lv_anim_delete(s_home_band, band_y_cb);
-  lv_anim_t step;
-  lv_anim_init(&step);
-  lv_anim_set_var(&step, s_home_band);
-  lv_anim_set_values(&step, s_bandY, s_bandY - BAND_LINE);
-  lv_anim_set_exec_cb(&step, band_y_cb);
-  lv_anim_set_path_cb(&step, band_path);
-  lv_anim_set_duration(&step, BAND_MS);
-  lv_anim_set_completed_cb(&step, band_step_done);
-  lv_anim_start(&step);
-}
-
-// A damped turn: the lines start slowly, run through the middle and are
-// settled well before the turn is over, so the rest at the end is a rest and
-// not a crawl.
-static int32_t band_path(const lv_anim_t *anim) {
-  const float t = (float)anim->act_time / (float)anim->duration;
-  const float settle =
-      1.0f - std::exp(-9.0f * t) *
-                 (std::cos(11.0f * t) + 0.82f * std::sin(11.0f * t));
-  return anim->start_value +
-         (int32_t)((float)(anim->end_value - anim->start_value) * settle);
-}
-
-// Paints the pair twice into the bitmap, so the lines leaving the top are the
-// ones arriving at the bottom.
-static void band_paint(const char *first, const char *second, int width) {
-  if (s_home_band == NULL) {
-    return;
-  }
-
-  lv_canvas_fill_bg(s_home_band, colour(Theme::BG), LV_OPA_COVER);
-
-  lv_layer_t layer;
-  lv_canvas_init_layer(s_home_band, &layer);
-
-  // The entries alternate, and the band holds three of them so the copy that
-  // leaves the top is the one arriving at the bottom.
-  const char *entries[BAND_LINES] = {first, second, first};
-  for (int i = 0; i < BAND_LINES; ++i) {
-    lv_draw_label_dsc_t dsc;
-    lv_draw_label_dsc_init(&dsc);
-    dsc.font = &lv_font_montserrat_12;
-    dsc.color = colour(Theme::MUTED);
-    dsc.text = entries[i];
-    dsc.text_length = (uint32_t)std::strlen(entries[i]);
-    dsc.align = LV_TEXT_ALIGN_CENTER;
-
-    // Two pixels of air above the glyphs, two below: the band is drawn line by
-    // line so that padding is exact rather than a guess at line spacing.
-    const lv_coord_t top =
-        (lv_coord_t)(i * BAND_LINE + BAND_PAD - BAND_LIFT);
-    lv_area_t area = {0, top, (lv_coord_t)(width - 1),
-                      (lv_coord_t)(top + BAND_TEXT - 1)};
-    lv_draw_label(&layer, &dsc, &area);
-  }
-
-  lv_canvas_finish_layer(s_home_band, &layer);
-}
-
-// Lets go of the bitmap and the canvas that showed it.
-static void band_free(void) {
-  if (s_home_band != NULL) {
-    lv_obj_delete(s_home_band);
-    s_home_band = NULL;
-  }
-  if (s_bandPixels != NULL) {
-    std::free(s_bandPixels);
-    s_bandPixels = NULL;
-  }
-}
-
-static void band_build(const char *first, const char *second) {
-  const int width = LINK_SLOT_W;
-
-  band_free();
-
-  // The bitmap is a menu-sized block, not a widget's: it comes from the system
-  // heap, because LVGL's own pool is 64 kB and the panel's objects live there.
-  s_bandPixels = (uint8_t *)std::malloc((size_t)width * BAND_H * 2);
-  if (s_bandPixels == NULL) {
-    return;
-  }
-
-  s_home_band = lv_canvas_create(s_home_ticker);
-  // The default style pads and frames its content, which would push the bitmap
-  // down inside the band and clip it at the bottom.
-  lv_obj_remove_style_all(s_home_band);
-  lv_canvas_set_buffer(s_home_band, s_bandPixels, width, BAND_H,
-                       LV_COLOR_FORMAT_RGB565);
-  lv_obj_set_pos(s_home_band, 0, 0);
-  lv_obj_remove_flag(s_home_band, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(s_home_band, LV_OBJ_FLAG_SCROLLABLE);
-
-  band_paint(first, second, width);
-
-  s_bandY = 0;
-  lv_obj_set_y(s_home_band, 0);
-}
-
-static void home_build(void) {
-  s_scroll = (float)s_selected;
-
-  // The cards read as labels rather than as sentences: upper case, and the
-  // words standing clear of the icon.
-  static const char *const TITLES[CARD_COUNT] = {"STATUS", "PROFILES", "KEYMAP",
-                                                 "CONFIG", "ABOUT"};
-
-  for (int i = 0; i < CARD_COUNT; ++i) {
-    lv_obj_t *card = surface(s_root, 0, 0, HOME_CARD_W, HOME_CARD_H);
-    lv_obj_set_style_radius(card, 7, 0);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-    s_home_icons[i] = text(card, HOME_ICONS[i], &lv_font_montserrat_14,
-                           Theme::ACCENT, 24, 9, 18);
-    s_home_titles[i] = text(card, TITLES[i], &lv_font_montserrat_14,
-                            Theme::TEXT, 56, 9, HOME_CARD_W - 62);
-    s_home_cards[i] = card;
-  }
-
-  lv_obj_t *block = lv_obj_create(s_root);
-  lv_obj_remove_style_all(block);
-  lv_obj_set_pos(block, 200, 0);
-  lv_obj_set_size(block, 214, 156);
-  lv_obj_set_style_bg_opa(block, LV_OPA_TRANSP, 0);
-  lv_obj_remove_flag(block, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(block, LV_OBJ_FLAG_SCROLLABLE);
-  for (int row = 0; row < 3; ++row) {
-    lv_obj_t *item = lv_obj_create(block);
-    lv_obj_remove_style_all(item);
-    lv_obj_set_pos(item, 0, 31 + row * 22);
-    lv_obj_set_size(item, 214, 18);
-    lv_obj_set_style_bg_opa(item, LV_OPA_TRANSP, 0);
-    lv_obj_remove_flag(item, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(item, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_layout(item, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(item, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(item, LV_FLEX_ALIGN_SPACE_BETWEEN,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(item, 10, 0);
-
-    s_home_keys[row] = lv_label_create(item);
-    lv_obj_set_style_text_font(s_home_keys[row], &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(s_home_keys[row], colour(Theme::MUTED), 0);
-    lv_obj_set_style_text_letter_space(s_home_keys[row], 1, 0);
-
-    s_home_values[row] = lv_label_create(item);
-    lv_obj_set_style_text_font(s_home_values[row], &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_home_values[row], colour(Theme::TEXT), 0);
-  }
-  for (int row = 0; row < 3; ++row) {
-    lv_obj_t *rule = lv_obj_create(block);
-    lv_obj_remove_style_all(rule);
-    lv_obj_set_pos(rule, 0, 28 + row * 22);
-    lv_obj_set_size(rule, 214, 1);
-    lv_obj_set_style_bg_color(rule, colour(Theme::BORDER), 0);
-    lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(rule, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(rule, LV_OBJ_FLAG_SCROLLABLE);
-  }
-  s_home_drawn = 0xFF;
-
-  lv_obj_t *track = lv_obj_create(s_root);
-  lv_obj_remove_style_all(track);
-  lv_obj_set_pos(track, 176, 12);
-  lv_obj_set_size(track, 2, 96);
-  lv_obj_set_style_radius(track, 1, 0);
-  fill(track, RAIL);
-  lv_obj_remove_flag(track, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
-
-  s_home_thumb = lv_obj_create(track);
-  lv_obj_remove_style_all(s_home_thumb);
-  lv_obj_set_pos(s_home_thumb, 0, 0);
-  lv_obj_set_size(s_home_thumb, 2, 20);
-  lv_obj_set_style_radius(s_home_thumb, 1, 0);
-  fill(s_home_thumb, THUMB);
-
-  // One line at the bottom: what this panel is until the main board answers,
-  // and what the main board is once it does.
-  s_home_ticker = lv_obj_create(s_root);
-  lv_obj_remove_style_all(s_home_ticker);
-  lv_obj_set_pos(s_home_ticker, LINK_SLOT_X, LINK_SLOT_Y);
-  lv_obj_set_size(s_home_ticker, LINK_SLOT_W, LINK_SLOT_H);
-  lv_obj_remove_flag(s_home_ticker, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(s_home_ticker, LV_OBJ_FLAG_SCROLLABLE);
-
-  home_link_show();
-}
-
-// An underdamped spring: the column and the thumb reach the next place a
-// little early, then settle back into it instead of stopping dead.
-static int32_t home_path(const lv_anim_t *anim) {
-  const float t = (float)anim->act_time / (float)anim->duration;
-  const float settle =
-      1.0f -
-      std::exp(-6.0f * t) * (std::cos(9.0f * t) + 0.67f * std::sin(9.0f * t));
-  return anim->start_value +
-         (int32_t)((float)(anim->end_value - anim->start_value) * settle);
-}
-
-static void home_anim_cb(void *var, int32_t value) {
-  (void)var;
-  const float t = (float)value / 1000.0f;
-  s_scroll = s_anim_from + s_anim_diff * t;
-  home_layout();
-}
-
-static void home_anim_done(lv_anim_t *anim) {
-  (void)anim;
-  float pos = s_scroll;
-  pos -= std::floor(pos / CARD_COUNT) * CARD_COUNT;
-  int selected = (int)std::floor(pos + 0.5f) % CARD_COUNT;
-  s_scroll = (float)selected;
-  s_selected = (uint8_t)selected;
-  home_layout();
-}
-
-// One place along the column, along the arc and back into range.
-static void home_step(int step) {
-  s_selected = (uint8_t)((s_selected + CARD_COUNT + step) % CARD_COUNT);
-
-  lv_anim_delete(&s_scroll, NULL);
-  s_anim_from = s_scroll;
-  s_anim_diff = (float)step;
-
-  lv_anim_t anim;
-  lv_anim_init(&anim);
-  lv_anim_set_var(&anim, &s_scroll);
-  lv_anim_set_values(&anim, 0, 1000);
-  lv_anim_set_exec_cb(&anim, home_anim_cb);
-  lv_anim_set_completed_cb(&anim, home_anim_done);
-  lv_anim_set_duration(&anim, 480);
-  lv_anim_set_path_cb(&anim, home_path);
-  lv_anim_start(&anim);
-}
-
 // ── rendering ──
 
 static void render(void) {
-  lv_anim_delete(&s_scroll, NULL);
   if (s_splash.cover != NULL) {
     // The page is about to be rebuilt under the splash: drop it early so the
     // fade callbacks never touch objects the clean is about to delete. A page
@@ -688,13 +219,12 @@ static void render(void) {
     s_splash.cover = NULL;
     s_splash.logo = NULL;
   }
-  band_free();
+  Home::free();
   lv_obj_clean(s_root);
-  s_home_ticker = NULL;
 
   if (s_page == &PAGE_MAIN) {
-    home_build();
-    home_layout();
+    Home::build(s_root);
+    Home::layout();
     return;
   }
 
@@ -745,12 +275,12 @@ static void render(void) {
 
 static void show(const Page *page) {
   s_page = page;
-  if (page == &PAGE_MAIN) {
-    s_selected = (uint8_t)((int)(s_scroll + 0.5f) % CARD_COUNT);
-  } else if (page == &PAGE_PROFILES) {
+  // The main page keeps the place its column was left in; every page behind it
+  // starts at its own.
+  if (page == &PAGE_PROFILES) {
     s_selected = s_model.profile_id > 0 ? (uint8_t)(s_model.profile_id - 1) : 0;
     s_selected %= PAGE_PROFILES.count;
-  } else {
+  } else if (page != &PAGE_MAIN) {
     s_selected = 0;
   }
   render();
@@ -758,7 +288,7 @@ static void show(const Page *page) {
 
 static void move(int step) {
   if (s_page == &PAGE_MAIN) {
-    home_step(step);
+    Home::step(step);
     return;
   }
   if (s_page->count == 0) {
@@ -774,7 +304,7 @@ void prev() { move(-1); }
 
 void enter() {
   if (s_page == &PAGE_MAIN) {
-    const Item *item = &MAIN_ITEMS[s_selected];
+    const Item *item = &MAIN_ITEMS[Home::selected()];
     if (item->page != NULL && s_depth < 6) {
       s_stack[s_depth++] = s_page;
       show(item->page);
@@ -906,7 +436,7 @@ void init() {
   button.pull_up_en = GPIO_PULLUP_ENABLE;
   gpio_config(&button);
   lv_timer_create(button_timer, 20, NULL);
-  lv_timer_create(band_timer, BAND_TURN, NULL);
+  Home::begin();
 
   show(&PAGE_MAIN);
   splash();
@@ -925,7 +455,7 @@ void setPeer(const char *id, const char *version) {
     s_model.peer_version[sizeof s_model.peer_version - 1] = '\0';
   }
   if (s_page == &PAGE_MAIN) {
-    home_link_show();
+    Home::showLink();
   }
 }
 
@@ -936,11 +466,7 @@ void setLink(bool up) {
   s_model.link = up;
 
   if (s_page == &PAGE_MAIN) {
-    home_link_show();
-    // The parameters column prints the link too, and it only refills when the
-    // chosen card moves.
-    s_home_drawn = 0xFF;
-    home_layout();
+    Home::refresh();
   } else if (s_page == &PAGE_STATUS) {
     render();
   }
