@@ -353,7 +353,7 @@ static void home_layout(void) {
 #define LINK_SLOT_X 0
 #define LINK_SLOT_Y 121
 #define LINK_SLOT_W 420
-#define LINK_SLOT_H 16
+#define LINK_SLOT_H 18
 
 static char s_bandLine[128];
 static lv_obj_t *s_home_band;
@@ -361,7 +361,7 @@ static uint8_t *s_bandPixels;
 static void band_timer(lv_timer_t *timer);
 static int32_t band_path(const lv_anim_t *anim);
 static void band_free(void);
-static void band_build(const char *line);
+static void band_build(const char *first, const char *second);
 static void band_gone_cb(lv_anim_t *anim);
 static void fade(lv_obj_t *obj, lv_opa_t from, lv_opa_t to,
                  lv_anim_completed_cb_t done);
@@ -392,13 +392,15 @@ static void home_link_show(void) {
     return;
   }
 
-  char line[128];
-  snprintf(line, sizeof line, "%s %s\nThetaGP.Coprocessor\n",
-           s_model.peer_id, s_model.peer_version);
-  if (std::strcmp(s_bandLine, line) != 0) {
-    std::strncpy(s_bandLine, line, sizeof s_bandLine - 1);
+  char first[64];
+  snprintf(first, sizeof first, "%s %s", s_model.peer_id,
+           s_model.peer_version);
+  char key[128];
+  snprintf(key, sizeof key, "%s|ThetaGP.Coprocessor", first);
+  if (std::strcmp(s_bandLine, key) != 0) {
+    std::strncpy(s_bandLine, key, sizeof s_bandLine - 1);
     s_bandLine[sizeof s_bandLine - 1] = '\0';
-    band_build(line);
+    band_build(first, "ThetaGP.Coprocessor");
     fade(s_home_band, LV_OPA_TRANSP, LV_OPA_COVER, NULL);
     fade(s_home_link, LV_OPA_COVER, LV_OPA_TRANSP, hide_cb);
   }
@@ -407,8 +409,12 @@ static void home_link_show(void) {
 // The band is drawn once into a bitmap and slid, not drawn again every frame:
 // blending glyphs costs milliseconds, copying a strip costs tens of
 // microseconds, and a slow crawl is only smooth when every step lands on time.
-#define BAND_LINE 14  // one line of Montserrat 12
-#define BAND_H    56  // four lines: the pair twice over
+#define BAND_TEXT  14               // the glyphs of Montserrat 12
+#define BAND_PAD   2                // air above and below every line
+#define BAND_LIFT  2                // the glyphs sit low in their own box
+#define BAND_LINE  (BAND_TEXT + BAND_PAD * 2)
+#define BAND_LINES 3                // the pair, and the first one again
+#define BAND_H    (BAND_LINE * BAND_LINES)
 #define BAND_MS   700   // one line's turn, damped
 #define BAND_REST 1300  // how long a line is given once it is in place
 #define BAND_TURN (BAND_MS + BAND_REST)
@@ -467,7 +473,7 @@ static int32_t band_path(const lv_anim_t *anim) {
 
 // Paints the pair twice into the bitmap, so the lines leaving the top are the
 // ones arriving at the bottom.
-static void band_paint(const char *line, int width) {
+static void band_paint(const char *first, const char *second, int width) {
   if (s_home_band == NULL) {
     return;
   }
@@ -477,16 +483,26 @@ static void band_paint(const char *line, int width) {
   lv_layer_t layer;
   lv_canvas_init_layer(s_home_band, &layer);
 
-  lv_draw_label_dsc_t dsc;
-  lv_draw_label_dsc_init(&dsc);
-  dsc.font = &lv_font_montserrat_12;
-  dsc.color = colour(Theme::MUTED);
-  dsc.text = line;
-  dsc.text_length = (uint32_t)std::strlen(line);
-  dsc.align = LV_TEXT_ALIGN_CENTER;
+  // The entries alternate, and the band holds three of them so the copy that
+  // leaves the top is the one arriving at the bottom.
+  const char *entries[BAND_LINES] = {first, second, first};
+  for (int i = 0; i < BAND_LINES; ++i) {
+    lv_draw_label_dsc_t dsc;
+    lv_draw_label_dsc_init(&dsc);
+    dsc.font = &lv_font_montserrat_12;
+    dsc.color = colour(Theme::MUTED);
+    dsc.text = entries[i];
+    dsc.text_length = (uint32_t)std::strlen(entries[i]);
+    dsc.align = LV_TEXT_ALIGN_CENTER;
 
-  lv_area_t area = {0, 0, (lv_coord_t)(width - 1), BAND_H - 1};
-  lv_draw_label(&layer, &dsc, &area);
+    // Two pixels of air above the glyphs, two below: the band is drawn line by
+    // line so that padding is exact rather than a guess at line spacing.
+    const lv_coord_t top =
+        (lv_coord_t)(i * BAND_LINE + BAND_PAD - BAND_LIFT);
+    lv_area_t area = {0, top, (lv_coord_t)(width - 1),
+                      (lv_coord_t)(top + BAND_TEXT - 1)};
+    lv_draw_label(&layer, &dsc, &area);
+  }
 
   lv_canvas_finish_layer(s_home_band, &layer);
 }
@@ -543,7 +559,7 @@ static void band_gone_cb(lv_anim_t *anim) {
   band_free();
 }
 
-static void band_build(const char *line) {
+static void band_build(const char *first, const char *second) {
   const int width = LINK_SLOT_W;
 
   band_free();
@@ -554,6 +570,9 @@ static void band_build(const char *line) {
   }
 
   s_home_band = lv_canvas_create(s_home_ticker);
+  // The default style pads and frames its content, which would push the bitmap
+  // down inside the band and clip it at the bottom.
+  lv_obj_remove_style_all(s_home_band);
   lv_obj_set_style_opa(s_home_band, LV_OPA_TRANSP, 0);
   lv_canvas_set_buffer(s_home_band, s_bandPixels, width, BAND_H,
                        LV_COLOR_FORMAT_RGB565);
@@ -561,9 +580,7 @@ static void band_build(const char *line) {
   lv_obj_remove_flag(s_home_band, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(s_home_band, LV_OBJ_FLAG_SCROLLABLE);
 
-  char twice[256];
-  snprintf(twice, sizeof twice, "%s%s", line, line);
-  band_paint(twice, width);
+  band_paint(first, second, width);
 
   s_bandY = 0;
   lv_obj_set_y(s_home_band, 0);
