@@ -30,6 +30,15 @@ include("${CMAKE_SOURCE_DIR}/cmake/lvgl.cmake")
 thetagp_lvgl("${CMAKE_SOURCE_DIR}/lib/lvgl")
 set(EXTRA_COMPONENT_DIRS "${CMAKE_SOURCE_DIR}/lib")
 
+# nanopb and the protocol between the two boards: the runtime is fetched, and
+# the codec of Link.proto is generated from the schema checkout beside it.
+# Both are needed before project() reads the component below.
+include("${CMAKE_SOURCE_DIR}/cmake/nanopb.cmake")
+thetagp_nanopb("${CMAKE_SOURCE_DIR}/third_party/nanopb")
+include("${CMAKE_SOURCE_DIR}/cmake/link.cmake")
+thetagp_link_codec("${CMAKE_SOURCE_DIR}/lib/ThetaGP.PB" "${THETAGP_NANOPB_DIR}"
+                   "${CMAKE_SOURCE_DIR}/main/pb")
+
 project(ThetaGP.Coprocessor)
 
 # LVGL 9.5.0 carries the NV3007 driver but publishes no Kconfig switch for it,

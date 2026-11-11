@@ -51,6 +51,24 @@ const Model &model();
 
 namespace Menu {
 
+// The pages the panel shows, in the order the menu lists them. The numbers are
+// the link's own: the schema names the same six, and the protocol layer checks
+// that they still agree.
+enum class PageId : uint8_t {
+  Menu = 0,
+  Monitor = 1,
+  Options = 2,
+  Mapping = 3,
+  Profiles = 4,
+  About = 5,
+};
+
+// What the screen shows: the page, and the place the mark sits on it.
+struct Screen {
+  PageId page;
+  uint8_t item;
+};
+
 // Creates the screen on the active display, at the top of the menu. The
 // power-up wordmark plays over it, and nothing outside the menu should start
 // talking to the main board before it has finished.
@@ -70,6 +88,13 @@ void setPeer(const char *id, const char *version);
 
 // The active profile's name and id, as profile.list reports them.
 void setProfile(uint32_t id, uint32_t count, const char *name);
+
+// The page on screen and the place the mark sits on it, as the link reports
+// the panel.
+Screen screen();
+
+// Opens `page`, leaving the menu behind it so back returns there.
+void showPage(PageId page);
 
 // Navigation, driven by the link's buttons or, until it is up, by the board
 // button: a short press moves the mark, a long press enters or leaves a page.

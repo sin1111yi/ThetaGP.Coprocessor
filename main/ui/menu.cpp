@@ -273,6 +273,9 @@ static void render(void) {
 
 // ── navigation ──
 
+// The board the link reports, which the pages name.
+static void setBoard(const char *id);
+
 static void show(const Page *page) {
   s_page = page;
   // The main page keeps the place its column was left in; every page behind it
@@ -336,6 +339,54 @@ void back() {
   }
   const Page *page = s_stack[--s_depth];
   show(page);
+}
+
+Screen screen() {
+  if (s_page == &PAGE_MAIN) {
+    return {PageId::Menu, (uint8_t)Home::selected()};
+  }
+  if (s_page == &PAGE_MONITOR) {
+    return {PageId::Monitor, s_selected};
+  }
+  if (s_page == &PAGE_OPTIONS) {
+    return {PageId::Options, s_selected};
+  }
+  if (s_page == &PAGE_MAPPING) {
+    return {PageId::Mapping, s_selected};
+  }
+  if (s_page == &PAGE_PROFILES) {
+    return {PageId::Profiles, s_selected};
+  }
+  return {PageId::About, s_selected};
+}
+
+static const Page *pageTable(PageId page) {
+  switch (page) {
+  case PageId::Monitor:
+    return &PAGE_MONITOR;
+  case PageId::Options:
+    return &PAGE_OPTIONS;
+  case PageId::Mapping:
+    return &PAGE_MAPPING;
+  case PageId::Profiles:
+    return &PAGE_PROFILES;
+  case PageId::About:
+    return &PAGE_ABOUT;
+  default:
+    return &PAGE_MAIN;
+  }
+}
+
+void showPage(PageId page) {
+  if (page == PageId::Menu) {
+    s_depth = 0;
+    show(&PAGE_MAIN);
+    return;
+  }
+  // One page deep, with the menu behind it: back from here is the menu.
+  s_stack[0] = &PAGE_MAIN;
+  s_depth = 1;
+  show(pageTable(page));
 }
 
 // ── the splash, once at power-up ──
@@ -445,6 +496,7 @@ void init() {
 bool introDone() { return s_splash.done; }
 
 void setPeer(const char *id, const char *version) {
+  setBoard(id);
   if (id != NULL) {
     std::strncpy(s_model.peer_id, id, sizeof s_model.peer_id - 1);
     s_model.peer_id[sizeof s_model.peer_id - 1] = '\0';
@@ -472,14 +524,50 @@ void setLink(bool up) {
   }
 }
 
-void setReportHz(uint32_t hz) { s_model.report_hz = hz; }
+// A value the main board reports, kept where the pages read it: a page that
+// prints it is rebuilt only when the value really moved.
+static void refreshPages(void) {
+  if (s_page == &PAGE_MAIN) {
+    Home::refresh();
+  } else {
+    render();
+  }
+}
+
+void setReportHz(uint32_t hz) {
+  if (hz == s_model.report_hz) {
+    return;
+  }
+  s_model.report_hz = hz;
+  refreshPages();
+}
 
 void setProfile(uint32_t id, uint32_t count, const char *name) {
+  const bool same =
+      id == s_model.profile_id && count == s_model.profile_count &&
+      (name == NULL || std::strcmp(name, s_model.profile_name) == 0);
+  if (same) {
+    return;
+  }
   s_model.profile_id = id;
   s_model.profile_count = count;
   if (name != NULL) {
     s_model.profile_name = name;
   }
+  refreshPages();
+}
+
+// The board the link reports is the board the pages name, so the About page
+// says where the screen it is on actually is.
+static char s_boardId[24] = "ThetaGP-H743";
+
+void setBoard(const char *id) {
+  if (id == NULL || id[0] == '\0') {
+    return;
+  }
+  std::strncpy(s_boardId, id, sizeof s_boardId - 1);
+  s_boardId[sizeof s_boardId - 1] = '\0';
+  s_model.board = s_boardId;
 }
 
 } // namespace Menu

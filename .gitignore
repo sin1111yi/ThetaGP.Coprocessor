@@ -1,6 +1,11 @@
-# Fetched at configure time (cmake/lvgl.cmake, cmake/sdl2.cmake)
+# Fetched at configure time (cmake/lvgl.cmake, cmake/sdl2.cmake,
+# cmake/nanopb.cmake)
 lib/lvgl/
 lib/sdl2/
+third_party/nanopb/
+
+# Generated at configure time (cmake/link.cmake)
+main/pb/
 
 # Build trees
 build/

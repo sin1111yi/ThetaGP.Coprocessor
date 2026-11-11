@@ -63,6 +63,7 @@ void Nv3007Panel::init() {
 }
 
 void Nv3007Panel::backlight(bool on) {
+  _backlightOn = on;
   gpio_set_level(PIN_LCD_BLK, on ? 1 : 0);
   printf("panel: backlight %s\n", on ? "on" : "off");
 }

@@ -46,6 +46,7 @@ public:
 
   // The panel's backlight, off until the first frame is on the glass.
   void backlight(bool on);
+  [[nodiscard]] bool backlightOn() const { return _backlightOn; }
 
   // The callbacks LVGL's NV3007 driver writes through.
   static void sendCommand(lv_display_t *disp, const uint8_t *cmd,
@@ -62,6 +63,7 @@ private:
   static void swapRgb565(uint8_t *bytes, size_t length);
 
   spi_device_handle_t _spi = nullptr;
+  bool _backlightOn = false;
 };
 
 } // namespace ThetaGP::Drivers::Display

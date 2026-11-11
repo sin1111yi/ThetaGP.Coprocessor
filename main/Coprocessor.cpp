@@ -31,24 +31,8 @@
 #include "drivers/display/lvgl_display.h"
 #include "drivers/display/nv3007_panel.h"
 #include "drivers/link/link.h"
+#include "drivers/link/panel_protocol.h"
 #include "ui/menu.h"
-
-namespace {
-
-// The link's payloads are opaque until the protocol is wired in. The first
-// frame is worth a line; after that the menu's bottom line is the report.
-void onFrame(const uint8_t *payload, uint16_t length, void *context) {
-  (void)context;
-  (void)payload;
-  (void)length;
-  static bool announced = false;
-  if (!announced) {
-    announced = true;
-    printf("link: peer answered\n");
-  }
-}
-
-} // namespace
 
 namespace ThetaGP {
 
@@ -102,20 +86,17 @@ void Coprocessor::run() {
     }
     if (!started && introSeen && (uint32_t)(lv_tick_get() - introAt) >= 1000U) {
       started = true;
-      Drivers::Link::Link::getInstance().setHandler(onFrame);
       Drivers::Link::Link::getInstance().init();
       Drivers::Link::Link::getInstance().markReady();
-      Drivers::Link::Link::getInstance().startHeartbeat(500);
+      // The schema, on top of the bytes: the first hello names this panel.
+      Drivers::Link::PanelProtocol::getInstance().init();
     }
 
     if (started) {
-      Drivers::Link::Link &link = Drivers::Link::Link::getInstance();
-      // Who the main board is, then that it is there: the bottom line changes
-      // once, to the words that name it, instead of twice in one tick.
-      if (link.takePeerUpdate()) {
-        Ui::Menu::setPeer(link.peerId(), link.peerVersion());
-      }
-      const bool up = link.alive();
+      Drivers::Link::PanelProtocol::getInstance().tick();
+      // The bottom line says whether the board is answering, and changes once
+      // when that answer starts or stops.
+      const bool up = Drivers::Link::Link::getInstance().alive();
       if (up != linked) {
         linked = up;
         Ui::Menu::setLink(up);

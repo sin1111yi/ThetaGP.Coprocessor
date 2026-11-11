@@ -261,57 +261,10 @@ bool Link::alive() const {
   return last != 0 && static_cast<uint32_t>(now - last) < 1500;
 }
 
-namespace {
-
-// Copies a zero-padded field out of a frame and stops at the padding.
-void takeField(char *out, size_t size, const uint8_t *field, size_t width) {
-  size_t used = 0;
-  while (used + 1 < size && used < width && field[used] != 0) {
-    out[used] = (char)field[used];
-    ++used;
-  }
-  out[used] = '\0';
-}
-
-} // namespace
-
 void Link::deliver(const uint8_t *payload, uint16_t length) {
   _lastFrameMs = static_cast<uint32_t>(esp_timer_get_time() / 1000);
-  // "TGID": the board's identifier and firmware version, which the corner of
-  // the home page shows while the link holds.
-  if (length >= 4 && payload[0] == 'T' && payload[1] == 'G' &&
-      payload[2] == 'I' && payload[3] == 'D' && length >= 40) {
-    takeField(_peerId, sizeof _peerId, payload + 4, 16);
-    takeField(_peerVersion, sizeof _peerVersion, payload + 20, 20);
-    _peerUpdated = true;
-  }
   if (_handler != nullptr) {
     _handler(payload, length, _context);
-  }
-}
-
-void Link::startHeartbeat(uint32_t periodMs) {
-  esp_timer_create_args_t args = {};
-  args.callback = [](void *argument) {
-    static_cast<Link *>(argument)->heartbeat();
-  };
-  args.arg = this;
-  args.dispatch_method = ESP_TIMER_TASK;
-  args.name = "link_beat";
-  args.skip_unhandled_events = true;
-
-  esp_timer_handle_t timer = nullptr;
-  if (esp_timer_create(&args, &timer) != ESP_OK) {
-    printf("link: no heartbeat timer\n");
-    return;
-  }
-  esp_timer_start_periodic(timer, (uint64_t)periodMs * 1000ULL);
-}
-
-void Link::heartbeat() {
-  static const uint8_t beat[] = {'C', 'O', 'P', 'R'};
-  if (!send(beat, sizeof beat)) {
-    printf("link: heartbeat refused\n");
   }
 }
 

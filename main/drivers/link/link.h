@@ -47,12 +47,6 @@ public:
   // Raises the line the main board waits on before it sends anything.
   void markReady();
 
-  // Sends a heartbeat every period, so the main board has something to answer.
-  // Four payload bytes and the framing make one seven-byte frame, which is the
-  // whole exchange the two ends agree on until the protocol is wired in.
-  void startHeartbeat(uint32_t periodMs);
-  void heartbeat();
-
   // Sends one payload, framed. Returns false if it is too long or the bus is
   // still carrying the previous one.
   bool send(const uint8_t *payload, uint16_t length);
@@ -66,22 +60,13 @@ public:
   uint32_t received() const { return _received; }
   uint32_t refused() const { return _refused; }
 
-  // What the main board said it is, once it has said it: the identifier it
-  // was built for and the version it runs.
-  const char *peerId() const { return _peerId; }
-  const char *peerVersion() const { return _peerVersion; }
-
-  // True once per new identity, and clears as it is read: the caller owns the
-  // widgets and is the only one that may touch them.
-  bool takePeerUpdate() {
-    const bool had = _peerUpdated;
-    _peerUpdated = false;
-    return had;
-  }
-
-  // True while frames are still arriving: a heartbeat that stopped a second
-  // and a half ago is a link that is down, not one that is quiet.
+  // True while frames are still arriving: a beat that stopped a second and a
+  // half ago is a link that is down, not one that is quiet.
   bool alive() const;
+
+  // True once a frame has arrived at all: the main board has answered, and the
+  // panel is no longer alone on the wire.
+  bool heard() const { return _received != 0; }
 
   static constexpr uint16_t PAYLOAD_MAX = 1024;
   static constexpr uint16_t FRAME_MAX = 2 + PAYLOAD_MAX + 2;
@@ -116,9 +101,6 @@ private:
   volatile uint32_t _refused = 0;
   volatile uint32_t _lastFrameMs = 0;
   volatile uint32_t _bytesRead = 0;
-  volatile bool _peerUpdated = false;
-  char _peerId[17] = {};
-  char _peerVersion[21] = {};
   bool _readyLine = false;
 };
 
