@@ -348,15 +348,18 @@ static void home_layout(void) {
 // ── the link read-out ──
 
 // ── the bottom line ──
-// One band across the whole width of the panel: the panel's own name while it
-// is alone, the main board's name and version rolling past once it answers.
+// One line at the foot of the panel: the panel's own name while it is alone,
+// and both names rolling upwards through it once the board answers.
 #define LINK_SLOT_X 0
 #define LINK_SLOT_Y 121
 #define LINK_SLOT_W 420
+#define LINK_SLOT_H 16
 
-static char s_bandLine[192];
+static char s_bandLine[128];
 static lv_obj_t *s_home_band;
 static uint8_t *s_bandPixels;
+static void band_timer(lv_timer_t *timer);
+static int32_t band_path(const lv_anim_t *anim);
 static void band_free(void);
 static void band_build(const char *line);
 static void band_gone_cb(lv_anim_t *anim);
@@ -389,9 +392,8 @@ static void home_link_show(void) {
     return;
   }
 
-  char line[192];
-  snprintf(line, sizeof line,
-           "%s %s      |      ThetaGP.Coprocessor      |      ",
+  char line[128];
+  snprintf(line, sizeof line, "%s %s\nThetaGP.Coprocessor\n",
            s_model.peer_id, s_model.peer_version);
   if (std::strcmp(s_bandLine, line) != 0) {
     std::strncpy(s_bandLine, line, sizeof s_bandLine - 1);
@@ -405,27 +407,66 @@ static void home_link_show(void) {
 // The band is drawn once into a bitmap and slid, not drawn again every frame:
 // blending glyphs costs milliseconds, copying a strip costs tens of
 // microseconds, and a slow crawl is only smooth when every step lands on time.
-#define BAND_H        16
-#define BAND_PX_PER_S 55
+#define BAND_LINE 14  // one line of Montserrat 12
+#define BAND_H    56  // four lines: the pair twice over
+#define BAND_MS   700   // one line's turn, damped
+#define BAND_REST 1300  // how long a line is given once it is in place
+#define BAND_TURN (BAND_MS + BAND_REST)
 
-static void band_x_cb(void *var, int32_t value) {
-  lv_obj_set_x((lv_obj_t *)var, (int)value);
+static int s_bandY;  // 0 or -BAND_LINE: which of the two lines is in the window
+
+static void band_y_cb(void *var, int32_t value) {
+  (void)var;
+  if (s_home_band != NULL) {
+    lv_obj_set_y(s_home_band, (int)value);
+  }
 }
 
-// The width one copy of the line takes, measured before the band is built.
-static int band_measure(const char *text) {
-  lv_obj_t *probe = lv_label_create(lv_screen_active());
-  lv_label_set_text(probe, text);
-  lv_obj_set_style_text_font(probe, &lv_font_montserrat_12, 0);
-  lv_obj_set_width(probe, LV_SIZE_CONTENT);
-  lv_obj_update_layout(probe);
-  const int width = (int)lv_obj_get_width(probe);
-  lv_obj_delete(probe);
-  return width;
+// One line leaves the window and the next takes its place; after two of those
+// the content is where it started, so the bitmap rewinds under it unseen.
+static void band_step_done(lv_anim_t *anim) {
+  (void)anim;
+  s_bandY = s_bandY - BAND_LINE;
+  if (s_bandY <= -(BAND_LINE * 2)) {
+    s_bandY = 0;
+  }
+  if (s_home_band != NULL) {
+    lv_obj_set_y(s_home_band, s_bandY);
+  }
 }
 
-// Paints one line twice into the bitmap, so the copy that leaves the left edge
-// is the one arriving at the right.
+static void band_timer(lv_timer_t *timer) {
+  (void)timer;
+  if (s_home_band == NULL) {
+    return;
+  }
+
+  lv_anim_delete(s_home_band, band_y_cb);
+  lv_anim_t step;
+  lv_anim_init(&step);
+  lv_anim_set_var(&step, s_home_band);
+  lv_anim_set_values(&step, s_bandY, s_bandY - BAND_LINE);
+  lv_anim_set_exec_cb(&step, band_y_cb);
+  lv_anim_set_path_cb(&step, band_path);
+  lv_anim_set_duration(&step, BAND_MS);
+  lv_anim_set_completed_cb(&step, band_step_done);
+  lv_anim_start(&step);
+}
+
+// A damped turn: the lines start slowly, run through the middle and are
+// settled well before the turn is over, so the rest at the end is a rest and
+// not a crawl.
+static int32_t band_path(const lv_anim_t *anim) {
+  const float t = (float)anim->act_time / (float)anim->duration;
+  const float settle =
+      1.0f - std::exp(-9.0f * t) *
+                 (std::cos(11.0f * t) + 0.82f * std::sin(11.0f * t));
+  return anim->start_value +
+         (int32_t)((float)(anim->end_value - anim->start_value) * settle);
+}
+
+// Paints the pair twice into the bitmap, so the lines leaving the top are the
+// ones arriving at the bottom.
 static void band_paint(const char *line, int width) {
   if (s_home_band == NULL) {
     return;
@@ -442,6 +483,7 @@ static void band_paint(const char *line, int width) {
   dsc.color = colour(Theme::MUTED);
   dsc.text = line;
   dsc.text_length = (uint32_t)std::strlen(line);
+  dsc.align = LV_TEXT_ALIGN_CENTER;
 
   lv_area_t area = {0, 0, (lv_coord_t)(width - 1), BAND_H - 1};
   lv_draw_label(&layer, &dsc, &area);
@@ -502,11 +544,7 @@ static void band_gone_cb(lv_anim_t *anim) {
 }
 
 static void band_build(const char *line) {
-  const int one = band_measure(line);
-  if (one <= 0) {
-    return;
-  }
-  const int width = one * 2;
+  const int width = LINK_SLOT_W;
 
   band_free();
 
@@ -523,20 +561,12 @@ static void band_build(const char *line) {
   lv_obj_remove_flag(s_home_band, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(s_home_band, LV_OBJ_FLAG_SCROLLABLE);
 
-  char twice[384];
+  char twice[256];
   snprintf(twice, sizeof twice, "%s%s", line, line);
   band_paint(twice, width);
 
-  lv_anim_delete(s_home_band, band_x_cb);
-  lv_anim_t band;
-  lv_anim_init(&band);
-  lv_anim_set_var(&band, s_home_band);
-  lv_anim_set_values(&band, 0, -one);
-  lv_anim_set_exec_cb(&band, band_x_cb);
-  lv_anim_set_path_cb(&band, lv_anim_path_linear);
-  lv_anim_set_duration(&band, (uint32_t)((one * 1000) / BAND_PX_PER_S));
-  lv_anim_set_repeat_count(&band, LV_ANIM_REPEAT_INFINITE);
-  lv_anim_start(&band);
+  s_bandY = 0;
+  lv_obj_set_y(s_home_band, 0);
 }
 
 static void home_build(void) {
@@ -622,7 +652,7 @@ static void home_build(void) {
   s_home_ticker = lv_obj_create(s_root);
   lv_obj_remove_style_all(s_home_ticker);
   lv_obj_set_pos(s_home_ticker, LINK_SLOT_X, LINK_SLOT_Y);
-  lv_obj_set_size(s_home_ticker, LINK_SLOT_W, 16);
+  lv_obj_set_size(s_home_ticker, LINK_SLOT_W, LINK_SLOT_H);
   lv_obj_remove_flag(s_home_ticker, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(s_home_ticker, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -633,7 +663,7 @@ static void home_build(void) {
   lv_obj_set_width(s_home_link, LINK_SLOT_W);
   lv_obj_set_style_text_align(s_home_link, LV_TEXT_ALIGN_CENTER, 0);
   lv_label_set_long_mode(s_home_link, LV_LABEL_LONG_CLIP);
-  lv_obj_set_pos(s_home_link, 0, 0);
+  lv_obj_set_pos(s_home_link, 0, (LINK_SLOT_H - BAND_LINE) / 2);
 
   home_link_show();
 }
@@ -917,6 +947,7 @@ void init() {
   button.pull_up_en = GPIO_PULLUP_ENABLE;
   gpio_config(&button);
   lv_timer_create(button_timer, 20, NULL);
+  lv_timer_create(band_timer, BAND_TURN, NULL);
 
   show(&PAGE_MAIN);
   splash();
