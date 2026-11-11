@@ -74,12 +74,12 @@ using Theme::text;
 #define BAND_CHARS  32 // the most a line carries, whatever the link reports
 
 static const char *const ICONS[CARD_COUNT] = {
-    LV_SYMBOL_WIFI, LV_SYMBOL_DIRECTORY, LV_SYMBOL_KEYBOARD, LV_SYMBOL_SETTINGS,
-    LV_SYMBOL_FILE};
+    LV_SYMBOL_EYE_OPEN, LV_SYMBOL_SETTINGS, LV_SYMBOL_KEYBOARD,
+    LV_SYMBOL_DIRECTORY, LV_SYMBOL_FILE};
 
 static const char *const KEYS[CARD_COUNT][3] = {
-    {"LINK", "RATE", "PROFILE"},  {"ID", "COUNT", "NAME"},
-    {"KEYS", "LAYER", "MODE"},    {"INPUT", "REPORT", "SAVE"},
+    {"LINK", "RATE", "PROFILE"},  {"INPUT", "REPORT", "SAVE"},
+    {"KEYS", "LAYER", "MODE"},    {"ID", "COUNT", "NAME"},
     {"BOARD", "MCU", "FIRMWARE"},
 };
 
@@ -119,9 +119,9 @@ static void params(uint8_t item, char out[3][26]) {
              (unsigned)m.profile_count);
     break;
   case 1:
-    snprintf(out[0], 26, "%u", (unsigned)m.profile_id);
-    snprintf(out[1], 26, "%u", (unsigned)m.profile_count);
-    snprintf(out[2], 26, "%s", m.profile_name);
+    snprintf(out[0], 26, "button");
+    snprintf(out[1], 26, "%u Hz", (unsigned)m.report_hz);
+    snprintf(out[2], 26, "auto");
     break;
   case 2:
     snprintf(out[0], 26, "16");
@@ -129,9 +129,9 @@ static void params(uint8_t item, char out[3][26]) {
     snprintf(out[2], 26, "hold");
     break;
   case 3:
-    snprintf(out[0], 26, "button");
-    snprintf(out[1], 26, "%u Hz", (unsigned)m.report_hz);
-    snprintf(out[2], 26, "auto");
+    snprintf(out[0], 26, "%u", (unsigned)m.profile_id);
+    snprintf(out[1], 26, "%u", (unsigned)m.profile_count);
+    snprintf(out[2], 26, "%s", m.profile_name);
     break;
   default:
     snprintf(out[0], 26, "%s", m.board);
@@ -403,8 +403,8 @@ void build(lv_obj_t *root) {
 
   // The cards read as labels rather than as sentences: upper case, and the
   // words standing clear of the icon.
-  static const char *const TITLES[CARD_COUNT] = {"STATUS", "PROFILES", "KEYMAP",
-                                                 "CONFIG", "ABOUT"};
+  static const char *const TITLES[CARD_COUNT] = {
+      "MONITOR", "OPTIONS", "MAPPING", "PROFILES", "ABOUT"};
 
   for (int i = 0; i < CARD_COUNT; ++i) {
     lv_obj_t *card = surface(root, 0, 0, HOME_CARD_W, HOME_CARD_H);

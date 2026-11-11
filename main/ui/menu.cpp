@@ -79,7 +79,7 @@ static Splash s_splash;
 
 // ── pages ──
 
-static void draw_status(lv_obj_t *parent) {
+static void draw_monitor(lv_obj_t *parent) {
   lv_obj_t *profile = surface(parent, 8, 23, 198, 70);
   text(profile, "PROFILE", &lv_font_montserrat_12, Theme::MUTED, 10, 6, 90);
   text(profile, s_model.profile_name, &lv_font_montserrat_20, Theme::TEXT, 10,
@@ -114,7 +114,7 @@ static void draw_status(lv_obj_t *parent) {
   text(link, rate, &lv_font_montserrat_14, Theme::ACCENT, 10, 46, 170);
 }
 
-static void draw_keymap(lv_obj_t *parent) {
+static void draw_mapping(lv_obj_t *parent) {
   static const char *keys[16] = {"B1", "B2", "B3", "B4", "L1", "R1",
                                  "L2", "R2", "S1", "S2", "L3", "R3",
                                  "A1", "A2", "UP", "DN"};
@@ -163,7 +163,7 @@ static void draw_profiles(lv_obj_t *parent) {
   }
 }
 
-static void draw_config(lv_obj_t *parent) {
+static void draw_options(lv_obj_t *parent) {
   static const char *keys[4] = {"usb.input_mode", "led.bri", "map.socd",
                                 "usb.wired_report_hz"};
   for (int i = 0; i < 4; ++i) {
@@ -193,15 +193,15 @@ static void draw_about(lv_obj_t *parent) {
        81, 400);
 }
 
-static const Page PAGE_STATUS = {"Status", draw_status, NULL, 0};
+static const Page PAGE_MONITOR = {"Monitor", draw_monitor, NULL, 0};
+static const Page PAGE_OPTIONS = {"Options", draw_options, NULL, 4};
+static const Page PAGE_MAPPING = {"Mapping", draw_mapping, NULL, 16};
 static const Page PAGE_PROFILES = {"Profiles", draw_profiles, NULL, 3};
-static const Page PAGE_KEYMAP = {"Keymap", draw_keymap, NULL, 16};
-static const Page PAGE_CONFIG = {"Config", draw_config, NULL, 4};
 static const Page PAGE_ABOUT = {"About", draw_about, NULL, 0};
 
 static const Item MAIN_ITEMS[] = {
-    {"Status", &PAGE_STATUS}, {"Profiles", &PAGE_PROFILES},
-    {"Keymap", &PAGE_KEYMAP}, {"Config", &PAGE_CONFIG},
+    {"Monitor", &PAGE_MONITOR}, {"Options", &PAGE_OPTIONS},
+    {"Mapping", &PAGE_MAPPING}, {"Profiles", &PAGE_PROFILES},
     {"About", &PAGE_ABOUT},
 };
 
@@ -467,7 +467,7 @@ void setLink(bool up) {
 
   if (s_page == &PAGE_MAIN) {
     Home::refresh();
-  } else if (s_page == &PAGE_STATUS) {
+  } else if (s_page == &PAGE_MONITOR) {
     render();
   }
 }
