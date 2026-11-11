@@ -23,6 +23,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "build_info.h"
@@ -355,6 +356,8 @@ static void home_layout(void) {
 #define LINK_SLOT_H 18
 
 static char s_bandLine[128];
+// Whether the band turns: it only does once the main board is answering.
+static bool s_bandRolling = false;
 static lv_obj_t *s_home_band;
 static uint8_t *s_bandPixels;
 static void band_free(void);
@@ -374,7 +377,10 @@ static void home_link_show(void) {
     snprintf(first, sizeof first, "%s %s", s_model.peer_id,
              s_model.peer_version);
   } else {
+    // Alone, the panel holds its own name still: nothing about a link that is
+    // not there is worth a moving line.
     snprintf(first, sizeof first, "ThetaGP.Coprocessor");
+    snprintf(second, sizeof second, "ThetaGP.Coprocessor");
   }
 
   char key[128];
@@ -385,6 +391,10 @@ static void home_link_show(void) {
   std::strncpy(s_bandLine, key, sizeof s_bandLine - 1);
   s_bandLine[sizeof s_bandLine - 1] = '\0';
   band_build(first, second);
+
+  // The band rests on its first entry and the timer turns it: the answer is
+  // worth reading before it scrolls away.
+  s_bandRolling = identified;
 }
 
 // The band is drawn once into a bitmap and slid, not drawn again every frame:
@@ -424,7 +434,7 @@ static void band_step_done(lv_anim_t *anim) {
 
 static void band_timer(lv_timer_t *timer) {
   (void)timer;
-  if (s_home_band == NULL) {
+  if (s_home_band == NULL || !s_bandRolling) {
     return;
   }
 
@@ -495,7 +505,7 @@ static void band_free(void) {
     s_home_band = NULL;
   }
   if (s_bandPixels != NULL) {
-    lv_free(s_bandPixels);
+    std::free(s_bandPixels);
     s_bandPixels = NULL;
   }
 }
@@ -505,7 +515,9 @@ static void band_build(const char *first, const char *second) {
 
   band_free();
 
-  s_bandPixels = (uint8_t *)lv_malloc((size_t)width * BAND_H * 2);
+  // The bitmap is a menu-sized block, not a widget's: it comes from the system
+  // heap, because LVGL's own pool is 64 kB and the panel's objects live there.
+  s_bandPixels = (uint8_t *)std::malloc((size_t)width * BAND_H * 2);
   if (s_bandPixels == NULL) {
     return;
   }
