@@ -93,9 +93,6 @@ void setProfile(uint32_t id, uint32_t count, const char *name);
 // the panel.
 Screen screen();
 
-// Opens `page`, leaving the menu behind it so back returns there.
-void showPage(PageId page);
-
 // Navigation, driven by the link's buttons or, until it is up, by the board
 // button: a short press moves the mark, a long press enters or leaves a page.
 void next();

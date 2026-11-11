@@ -76,7 +76,6 @@ private:
 
   static constexpr uint8_t kNavQueue = 8;
   uint8_t _navAction[kNavQueue] = {};
-  uint8_t _navPage[kNavQueue] = {};
   volatile uint8_t _navHead = 0;
   volatile uint8_t _navTail = 0;
 

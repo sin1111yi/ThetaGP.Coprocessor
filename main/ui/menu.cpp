@@ -360,35 +360,6 @@ Screen screen() {
   return {PageId::About, s_selected};
 }
 
-static const Page *pageTable(PageId page) {
-  switch (page) {
-  case PageId::Monitor:
-    return &PAGE_MONITOR;
-  case PageId::Options:
-    return &PAGE_OPTIONS;
-  case PageId::Mapping:
-    return &PAGE_MAPPING;
-  case PageId::Profiles:
-    return &PAGE_PROFILES;
-  case PageId::About:
-    return &PAGE_ABOUT;
-  default:
-    return &PAGE_MAIN;
-  }
-}
-
-void showPage(PageId page) {
-  if (page == PageId::Menu) {
-    s_depth = 0;
-    show(&PAGE_MAIN);
-    return;
-  }
-  // One page deep, with the menu behind it: back from here is the menu.
-  s_stack[0] = &PAGE_MAIN;
-  s_depth = 1;
-  show(pageTable(page));
-}
-
 // ── the splash, once at power-up ──
 
 static void splash_opa(void *var, int32_t value) {

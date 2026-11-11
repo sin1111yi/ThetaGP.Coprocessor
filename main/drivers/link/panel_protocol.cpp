@@ -55,7 +55,7 @@ uint32_t nowSeconds() {
 }
 
 // The page ids of Link.proto and the ones the menu knows are the same numbers:
-// the link names a page, and `showPage` opens it.
+// the beat the panel sends and the state a host reads name a page the same way.
 static_assert((uint8_t)Ui::Menu::PageId::Menu == ThetaGP_Link_Page_PAGE_MENU,
               "the menu's first page is not the schema's");
 static_assert((uint8_t)Ui::Menu::PageId::Monitor ==
@@ -205,7 +205,6 @@ void PanelProtocol::handle(const uint8_t *payload, uint16_t length) {
       return;
     }
     _navAction[_navHead] = (uint8_t)message.kind.nav.action;
-    _navPage[_navHead] = (uint8_t)message.kind.nav.page;
     _navHead = next;
     break;
   }
@@ -236,24 +235,24 @@ void PanelProtocol::apply() {
   bool moved = false;
   while (_navTail != _navHead) {
     const uint8_t action = _navAction[_navTail];
-    const uint8_t page = _navPage[_navTail];
     _navTail = (uint8_t)((_navTail + 1) % kNavQueue);
 
+    // The six keys, as the menu knows them: the four directions travel the
+    // column, and the two ends of a choice take and refuse it.
     switch (action) {
-    case ThetaGP_Link_NavAction_NAV_PREV:
+    case ThetaGP_Link_NavAction_NAV_UP:
+    case ThetaGP_Link_NavAction_NAV_LEFT:
       Ui::Menu::prev();
       break;
-    case ThetaGP_Link_NavAction_NAV_NEXT:
+    case ThetaGP_Link_NavAction_NAV_DOWN:
+    case ThetaGP_Link_NavAction_NAV_RIGHT:
       Ui::Menu::next();
       break;
-    case ThetaGP_Link_NavAction_NAV_ENTER:
+    case ThetaGP_Link_NavAction_NAV_CONFIRM:
       Ui::Menu::enter();
       break;
     case ThetaGP_Link_NavAction_NAV_BACK:
       Ui::Menu::back();
-      break;
-    case ThetaGP_Link_NavAction_NAV_SHOW:
-      Ui::Menu::showPage((Ui::Menu::PageId)page);
       break;
     default:
       continue;
