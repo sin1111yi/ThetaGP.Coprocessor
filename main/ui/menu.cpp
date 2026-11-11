@@ -89,7 +89,6 @@ static lv_obj_t *s_home_keys[3];
 static lv_obj_t *s_home_values[3];
 static lv_obj_t *s_home_thumb;
 static lv_obj_t *s_home_ticker;
-static lv_obj_t *s_home_link;
 static uint8_t s_home_drawn = 0xFF;
 
 // The wordmark fades in over the menu, holds, then fades out and uncovers it.
@@ -358,52 +357,34 @@ static void home_layout(void) {
 static char s_bandLine[128];
 static lv_obj_t *s_home_band;
 static uint8_t *s_bandPixels;
-static void band_timer(lv_timer_t *timer);
-static int32_t band_path(const lv_anim_t *anim);
 static void band_free(void);
 static void band_build(const char *first, const char *second);
-static void band_gone_cb(lv_anim_t *anim);
-static void fade(lv_obj_t *obj, lv_opa_t from, lv_opa_t to,
-                 lv_anim_completed_cb_t done);
-static void hide_cb(lv_anim_t *anim);
+static void band_timer(lv_timer_t *timer);
+static int32_t band_path(const lv_anim_t *anim);
 
-// Paints the corner for the state the model carries, once per change.
+// Paints the corner for the state the model carries, once per change. The band
+// rolls from the first boot: the panel's own name until the main board answers,
+// then the two names turn by turn.
 static void home_link_show(void) {
-  if (s_home_link == NULL) {
-    return;
-  }
-
-  // The band is the only thing that says whether the main board is there: the
-  // board's own name and version scroll while it answers, and the panel's name
-  // sits still while it does not.
-  const bool identified = s_model.link && s_model.peer_id[0] != '\0';
-
-  if (!identified) {
-    // Alone, the panel says its own name and nothing moves. The band is let go
-    // only once it has faded, so the change is a dissolve and not a cut.
-    if (s_home_band != NULL) {
-      fade(s_home_band, LV_OPA_COVER, LV_OPA_TRANSP, band_gone_cb);
-    }
-    s_bandLine[0] = '\0';
-    if (s_home_link != NULL) {
-      lv_label_set_text(s_home_link, "ThetaGP.Coprocessor");
-      fade(s_home_link, LV_OPA_TRANSP, LV_OPA_COVER, NULL);
-    }
-    return;
-  }
-
   char first[64];
-  snprintf(first, sizeof first, "%s %s", s_model.peer_id,
-           s_model.peer_version);
-  char key[128];
-  snprintf(key, sizeof key, "%s|ThetaGP.Coprocessor", first);
-  if (std::strcmp(s_bandLine, key) != 0) {
-    std::strncpy(s_bandLine, key, sizeof s_bandLine - 1);
-    s_bandLine[sizeof s_bandLine - 1] = '\0';
-    band_build(first, "ThetaGP.Coprocessor");
-    fade(s_home_band, LV_OPA_TRANSP, LV_OPA_COVER, NULL);
-    fade(s_home_link, LV_OPA_COVER, LV_OPA_TRANSP, hide_cb);
+  char second[64] = "ThetaGP.Coprocessor";
+
+  const bool identified = s_model.link && s_model.peer_id[0] != '\0';
+  if (identified) {
+    snprintf(first, sizeof first, "%s %s", s_model.peer_id,
+             s_model.peer_version);
+  } else {
+    snprintf(first, sizeof first, "ThetaGP.Coprocessor");
   }
+
+  char key[128];
+  snprintf(key, sizeof key, "%s|%s", first, second);
+  if (std::strcmp(s_bandLine, key) == 0) {
+    return;
+  }
+  std::strncpy(s_bandLine, key, sizeof s_bandLine - 1);
+  s_bandLine[sizeof s_bandLine - 1] = '\0';
+  band_build(first, second);
 }
 
 // The band is drawn once into a bitmap and slid, not drawn again every frame:
@@ -507,41 +488,7 @@ static void band_paint(const char *first, const char *second, int width) {
   lv_canvas_finish_layer(s_home_band, &layer);
 }
 
-static void opa_cb(void *var, int32_t value) {
-  lv_obj_set_style_opa((lv_obj_t *)var, (lv_opa_t)value, 0);
-}
-
-static void hide_cb(lv_anim_t *anim) {
-  if (anim->var != NULL) {
-    lv_obj_add_flag((lv_obj_t *)anim->var, LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
-// Fades one line in over the other, so the corner changes state rather than
-// replacing itself.
-static void fade(lv_obj_t *obj, lv_opa_t from, lv_opa_t to,
-                 lv_anim_completed_cb_t done) {
-  if (obj == NULL) {
-    return;
-  }
-  if (to != LV_OPA_TRANSP) {
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
-  }
-  lv_anim_delete(obj, opa_cb);
-
-  lv_anim_t anim;
-  lv_anim_init(&anim);
-  lv_anim_set_var(&anim, obj);
-  lv_anim_set_values(&anim, from, to);
-  lv_anim_set_exec_cb(&anim, opa_cb);
-  lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
-  lv_anim_set_duration(&anim, 600);
-  // A fade-in ends with the line on show; only a fade-out is hidden at the end.
-  lv_anim_set_completed_cb(
-      &anim, done != NULL ? done : (to == LV_OPA_TRANSP ? hide_cb : nullptr));
-  lv_anim_start(&anim);
-}
-
+// Lets go of the bitmap and the canvas that showed it.
 static void band_free(void) {
   if (s_home_band != NULL) {
     lv_obj_delete(s_home_band);
@@ -551,12 +498,6 @@ static void band_free(void) {
     lv_free(s_bandPixels);
     s_bandPixels = NULL;
   }
-}
-
-// Builds the band for one line and starts it moving.
-static void band_gone_cb(lv_anim_t *anim) {
-  (void)anim;
-  band_free();
 }
 
 static void band_build(const char *first, const char *second) {
@@ -573,7 +514,6 @@ static void band_build(const char *first, const char *second) {
   // The default style pads and frames its content, which would push the bitmap
   // down inside the band and clip it at the bottom.
   lv_obj_remove_style_all(s_home_band);
-  lv_obj_set_style_opa(s_home_band, LV_OPA_TRANSP, 0);
   lv_canvas_set_buffer(s_home_band, s_bandPixels, width, BAND_H,
                        LV_COLOR_FORMAT_RGB565);
   lv_obj_set_pos(s_home_band, 0, 0);
@@ -673,15 +613,6 @@ static void home_build(void) {
   lv_obj_remove_flag(s_home_ticker, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(s_home_ticker, LV_OBJ_FLAG_SCROLLABLE);
 
-  s_home_link = lv_label_create(s_home_ticker);
-  lv_label_set_text(s_home_link, "ThetaGP.Coprocessor");
-  lv_obj_set_style_text_font(s_home_link, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(s_home_link, colour(Theme::MUTED), 0);
-  lv_obj_set_width(s_home_link, LINK_SLOT_W);
-  lv_obj_set_style_text_align(s_home_link, LV_TEXT_ALIGN_CENTER, 0);
-  lv_label_set_long_mode(s_home_link, LV_LABEL_LONG_CLIP);
-  lv_obj_set_pos(s_home_link, 0, (LINK_SLOT_H - BAND_LINE) / 2);
-
   home_link_show();
 }
 
@@ -748,7 +679,6 @@ static void render(void) {
   band_free();
   lv_obj_clean(s_root);
   s_home_ticker = NULL;
-  s_home_link = NULL;
 
   if (s_page == &PAGE_MAIN) {
     home_build();
