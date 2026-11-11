@@ -406,8 +406,8 @@ static void home_link_show(void) {
 #define BAND_LINE  (BAND_TEXT + BAND_PAD * 2)
 #define BAND_LINES 3                // the pair, and the first one again
 #define BAND_H    (BAND_LINE * BAND_LINES)
-#define BAND_MS   700   // one line's turn, damped
-#define BAND_REST 1300  // how long a line is given once it is in place
+#define BAND_MS   900   // one line's turn, damped
+#define BAND_REST 2100  // how long a line is given once it is in place
 #define BAND_TURN (BAND_MS + BAND_REST)
 
 static int s_bandY;  // 0 or -BAND_LINE: which of the two lines is in the window
