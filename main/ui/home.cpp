@@ -67,7 +67,7 @@ using Theme::text;
 // The right column shows four lines and rolls between them the way the link
 // line rolls: a whole line, damped, with the next block waiting below.
 #define PARAM_LINE  18
-#define PARAM_ROWS  4
+#define PARAM_ROWS  6
 #define PARAM_H     (PARAM_LINE * PARAM_ROWS)
 #define PARAM_Y     ((140 - PARAM_H) / 2)
 
@@ -76,9 +76,11 @@ static const char *const ICONS[CARD_COUNT] = {
     LV_SYMBOL_DIRECTORY, LV_SYMBOL_FILE};
 
 static const char *const PARAM_KEYS[CARD_COUNT][PARAM_ROWS] = {
-    {"LINK", "RATE", "PROFILE", "PEER"},  {"INPUT", "REPORT", "SAVE", "MODE"},
-    {"KEYS", "LAYER", "MODE", "DEFAULT"}, {"ID", "COUNT", "NAME", "STATE"},
-    {"BOARD", "MCU", "FW", "PANEL"},
+    {"LINK", "RATE", "PROFILE", "PEER", "FIRMWARE", "PANEL"},
+    {"INPUT", "REPORT", "SAVE", "MODE", "SOURCE", "DEFAULT"},
+    {"KEYS", "LAYER", "MODE", "DEFAULT", "SCHEME", "RESET"},
+    {"ID", "COUNT", "NAME", "STATE", "MAPPING", "OPTIONS"},
+    {"BOARD", "MCU", "FW", "PANEL", "BUILD", "PROTOCOL"},
 };
 
 static float s_scroll;
@@ -109,30 +111,41 @@ static void params(uint8_t item, char out[PARAM_ROWS][2][26]) {
     snprintf(out[2][1], 26, "%s %u/%u", m.profile_name, (unsigned)m.profile_id,
              (unsigned)m.profile_count);
     snprintf(out[3][1], 26, "%s", m.peer_id[0] != '\0' ? m.peer_id : "-");
+    snprintf(out[4][1], 26, "%s",
+             m.peer_version[0] != '\0' ? m.peer_version : "-");
+    snprintf(out[5][1], 26, "%s", "428x156");
     break;
   case 1:
     snprintf(out[0][1], 26, "button");
     snprintf(out[1][1], 26, "%u Hz", (unsigned)m.report_hz);
     snprintf(out[2][1], 26, "auto");
     snprintf(out[3][1], 26, "usb");
+    snprintf(out[4][1], 26, "%s", "config");
+    snprintf(out[5][1], 26, "%s", "-");
     break;
   case 2:
     snprintf(out[0][1], 26, "16");
     snprintf(out[1][1], 26, "1");
     snprintf(out[2][1], 26, "hold");
     snprintf(out[3][1], 26, "-");
+    snprintf(out[4][1], 26, "%s", "-");
+    snprintf(out[5][1], 26, "%s", "-");
     break;
   case 3:
     snprintf(out[0][1], 26, "%u", (unsigned)m.profile_id);
     snprintf(out[1][1], 26, "%u", (unsigned)m.profile_count);
     snprintf(out[2][1], 26, "%s", m.profile_name);
     snprintf(out[3][1], 26, "%s", "active");
+    snprintf(out[4][1], 26, "%s", "-");
+    snprintf(out[5][1], 26, "%s", "-");
     break;
   default:
     snprintf(out[0][1], 26, "%s", m.board);
     snprintf(out[1][1], 26, "ESP32-S3");
     snprintf(out[2][1], 26, "%s", BuildInfo::VERSION);
     snprintf(out[3][1], 26, "428x156");
+    snprintf(out[4][1], 26, "%s", "-");
+    snprintf(out[5][1], 26, "%s", "1");
     break;
   }
 }

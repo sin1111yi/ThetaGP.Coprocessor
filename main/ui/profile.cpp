@@ -52,7 +52,7 @@ using Theme::text;
 #define RIGHT_X     200
 #define RIGHT_W     214
 #define LINE_H      18
-#define RIGHT_ROWS  4
+#define RIGHT_ROWS  6
 #define RIGHT_Y     ((140 - LINE_H * RIGHT_ROWS) / 2)
 #define MOVE_MS     480
 
