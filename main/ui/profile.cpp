@@ -262,8 +262,8 @@ static void paint_right(const char lines[RIGHT_ROWS][2][40], int focusRow) {
     label.color = colour(on ? Theme::ACCENT : Theme::MUTED);
     label.text = lines[i][0];
     label.text_length = (uint32_t)std::strlen(lines[i][0]);
-    lv_area_t labelArea = {5, (lv_coord_t)(top + 5),
-                           (lv_coord_t)(RIGHT_W - 6),
+    lv_area_t labelArea = {4, (lv_coord_t)(top + 5),
+                           (lv_coord_t)(RIGHT_W - 7),
                            (lv_coord_t)(top + 18)};
     lv_draw_label(&layer, &label, &labelArea);
 
@@ -455,11 +455,11 @@ void build(lv_obj_t *root) {
   lv_obj_remove_flag(s_right, LV_OBJ_FLAG_SCROLLABLE);
 
   s_rightPixels =
-      (uint8_t *)std::malloc((size_t)RIGHT_W * RIGHT_H * 2);
+      (uint8_t *)std::malloc((size_t)(RIGHT_W - 4) * RIGHT_H * 2);
   if (s_rightPixels != NULL) {
     s_rightCanvas = lv_canvas_create(s_right);
     lv_obj_remove_style_all(s_rightCanvas);
-    lv_canvas_set_buffer(s_rightCanvas, s_rightPixels, RIGHT_W, RIGHT_H,
+    lv_canvas_set_buffer(s_rightCanvas, s_rightPixels, RIGHT_W - 4, RIGHT_H,
                          LV_COLOR_FORMAT_RGB565);
     lv_obj_set_pos(s_rightCanvas, 0, 0);
     lv_obj_remove_flag(s_rightCanvas, LV_OBJ_FLAG_CLICKABLE);
