@@ -29,6 +29,7 @@ idf_component_register(
          "${THETAGP_NANOPB_DIR}/pb_encode.c"
          "${THETAGP_NANOPB_DIR}/pb_decode.c"
          "ui/menu.cpp"
+         "ui/profile.cpp"
          "ui/home.cpp"
          "ui/logo.c"
     INCLUDE_DIRS "." "pb" "${THETAGP_NANOPB_DIR}"

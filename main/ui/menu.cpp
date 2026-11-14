@@ -28,6 +28,7 @@
 #include "conf/board.h"
 #include "ui/home.h"
 #include "ui/logo.h"
+#include "ui/profile.h"
 #include "ui/theme.h"
 
 #include "driver/gpio.h"
@@ -63,6 +64,10 @@ struct Page {
 };
 
 static lv_obj_t *s_root;
+
+// Whether the profiles have the screen: the home menu's PROFILES card is the
+// way in, and one back out of the level returns to it.
+static bool s_inProfile;
 static const Page *s_page;
 static const Page *s_stack[6];
 static uint8_t s_depth;
@@ -220,7 +225,14 @@ static void render(void) {
     s_splash.logo = NULL;
   }
   Home::free();
+  Profile::free();
   lv_obj_clean(s_root);
+
+  if (s_inProfile) {
+    Profile::build(s_root);
+    Profile::layout();
+    return;
+  }
 
   if (s_page == &PAGE_MAIN) {
     Home::build(s_root);
@@ -290,6 +302,10 @@ static void show(const Page *page) {
 }
 
 static void move(int step) {
+  if (s_inProfile) {
+    Profile::move(step);
+    return;
+  }
   if (s_page == &PAGE_MAIN) {
     Home::step(step);
     return;
@@ -306,6 +322,16 @@ void next() { move(1); }
 void prev() { move(-1); }
 
 void enter() {
+  if (s_inProfile) {
+    Profile::enter();
+    return;
+  }
+  // The PROFILES card is the way into the level the profiles own.
+  if (s_page == &PAGE_MAIN && Home::selected() == 3) {
+    s_inProfile = true;
+    render();
+    return;
+  }
   if (s_page == &PAGE_MAIN) {
     const Item *item = &MAIN_ITEMS[Home::selected()];
     if (item->page != NULL && s_depth < 6) {
@@ -334,6 +360,15 @@ void enter() {
 }
 
 void back() {
+  if (s_inProfile) {
+    // One step back inside the level is the level's own; no step left is the
+    // way out of it.
+    if (!Profile::leave()) {
+      s_inProfile = false;
+      render();
+    }
+    return;
+  }
   if (s_depth == 0) {
     return;
   }
@@ -342,6 +377,9 @@ void back() {
 }
 
 Screen screen() {
+  if (s_inProfile) {
+    return {PageId::Profiles, Profile::item()};
+  }
   if (s_page == &PAGE_MAIN) {
     return {PageId::Menu, (uint8_t)Home::selected()};
   }
@@ -498,7 +536,9 @@ void setLink(bool up) {
 // A value the main board reports, kept where the pages read it: a page that
 // prints it is rebuilt only when the value really moved.
 static void refreshPages(void) {
-  if (s_page == &PAGE_MAIN) {
+  if (s_inProfile) {
+    Profile::layout();
+  } else if (s_page == &PAGE_MAIN) {
     Home::refresh();
   } else {
     render();
