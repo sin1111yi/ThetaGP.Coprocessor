@@ -54,16 +54,16 @@ using Theme::text;
 #define RIGHT_Y     ((140 - Cards::HEIGHT) / 2)
 #define MOVE_MS     480
 
-// The window a setting is edited in: it covers the page, ten pixels in from
-// either side and six from the top and the bottom. The page under it is
+// The window a setting is edited in: it covers the page, twenty-five pixels in
+// from either side and ten from the top and the bottom. The page under it is
 // cleared to its own background, so nothing of the level shows at the edges.
-#define POP_W       (420 - 2 * 10)
-#define POP_H       (140 - 2 * 6)
-#define POP_X       10
-#define POP_Y       6
+#define POP_W       (420 - 2 * 25)
+#define POP_H       (140 - 2 * 10)
+#define POP_X       25
+#define POP_Y       10
 #define POP_PAD     12
 #define POP_NAME    26
-#define POP_ROW     32
+#define POP_ROW     30
 #define POP_STEP    22
 #define POP_VALUE   100
 
