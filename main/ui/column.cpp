@@ -141,17 +141,6 @@ void Column::focus(int row) {
   }
 }
 
-void Column::shown(bool on) {
-  if (_window == nullptr) {
-    return;
-  }
-  if (on) {
-    lv_obj_remove_flag(_window, LV_OBJ_FLAG_HIDDEN);
-  } else {
-    lv_obj_add_flag(_window, LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
 void Column::rest(void) {
   if (_list != nullptr) {
     lv_anim_delete(_list, nullptr);

@@ -60,9 +60,6 @@ public:
   // Puts the column at rest, for a value that changed under the mark.
   void rest(void);
 
-  // Keeps the column out of the way of a window drawn over it.
-  void shown(bool on);
-
   // Slides the column one card, in the direction the mark moved.
   void slide(int direction);
 

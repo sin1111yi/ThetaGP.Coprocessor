@@ -55,17 +55,20 @@ using Theme::text;
 #define RIGHT_Y     ((140 - Cards::HEIGHT) / 2)
 #define MOVE_MS     480
 
-// The window a setting is edited in: smaller than the screen, over the middle
-// of it.
-#define POP_W       320
+// The window a setting is edited in: it stands in the room the name cards
+// leave, so the profile's menu stays in view beside it.
+#define POP_W       194
 #define POP_H       104
-#define POP_X       ((420 - POP_W) / 2)
+#define POP_X       2
 #define POP_Y       ((140 - POP_H) / 2)
+#define POP_PAD     10
+#define POP_VALUE   46
 
 enum Focus : uint8_t { kNames, kMenu, kSettings, kValue };
 
 // The lines the right column carries: the profile's own menu.
 #define MENU_ROWS 5
+#define MENU_OPTIONS 3
 static const char *const MENU_NAMES[MENU_ROWS] = {
     "NAME", "ACTIVE", "MAPPING CONFIG", "OPTIONS", "LED EFFECTS"};
 
@@ -110,7 +113,6 @@ static lv_obj_t *s_popup; // the window a setting is edited in
 static lv_obj_t *s_popupTitle;
 static lv_obj_t *s_popupRow[RIGHT_ROWS];
 static lv_obj_t *s_popupName[RIGHT_ROWS];
-static lv_obj_t *s_popupMark[RIGHT_ROWS];
 
 static void popupOpen(void);
 static void popupShow(void);
@@ -209,11 +211,7 @@ static void listBlock(char out[RIGHT_ROWS][2][40], bool values, int top) {
       }
     } else {
       if (row < 4) {
-        const char *value = VALUES[s_setting][row];
-        if (value[0] != '\0') {
-          snprintf(out[i][0], 40, "%s", row == s_valueRow ? "*" : "");
-          snprintf(out[i][1], 40, "%s", value);
-        }
+        snprintf(out[i][0], 40, "%s", VALUES[s_setting][row]);
       }
     }
   }
@@ -221,26 +219,28 @@ static void listBlock(char out[RIGHT_ROWS][2][40], bool values, int top) {
 
 // ── the right column ──
 
-// The four lines the column carries, for the state the mark is in.
-static void rightBlock(char out[RIGHT_ROWS][2][40]) {
-  if (s_focus == kSettings) {
-    listBlock(out, false, s_offset);
-  } else if (s_focus == kValue) {
-    listBlock(out, true, s_offset);
-  } else {
-    menuBlock(out, s_offset);
+// The top line of the menu the column shows: where the mark has scrolled it,
+// and no further than the line a window is open on.
+static int rightTop(void) {
+  int top = s_offset;
+  if (top > MENU_OPTIONS) {
+    top = MENU_OPTIONS;
   }
+  return top;
 }
+
+// The four lines the column carries: the profile's menu, from that line.
+static void rightBlock(char out[RIGHT_ROWS][2][40]) { menuBlock(out, rightTop()); }
 
 // Which of those lines the mark is on; -1 while it is on the names.
 static int rightMark(void) {
   switch (s_focus) {
   case kMenu:
-    return s_row - s_offset;
+    return s_row - rightTop();
   case kSettings:
-    return s_setting - s_offset;
   case kValue:
-    return s_valueRow - s_offset;
+    // The window is open on this line; the list it holds marks itself.
+    return MENU_OPTIONS - rightTop();
   default:
     return -1;
   }
@@ -480,12 +480,6 @@ void move(int step) {
       row = 0;
     }
     s_setting = row;
-    if (s_setting < s_offset) {
-      s_offset = s_setting;
-    }
-    if (s_setting >= s_offset + RIGHT_ROWS) {
-      s_offset = s_setting - RIGHT_ROWS + 1;
-    }
     popupShow();
     break;
   }
@@ -524,36 +518,25 @@ static void popupShow(void) {
   }
 
   char lines[RIGHT_ROWS][2][40] = {};
-  listBlock(lines, s_focus == kValue, s_offset);
   const bool values = s_focus == kValue;
+  listBlock(lines, values, 0);
 
   for (int i = 0; i < RIGHT_ROWS; ++i) {
-    const bool used = lines[i][1][0] != '\0';
-    const int row = s_offset + i;
+    const bool used = lines[i][0][0] != '\0';
     const int mark = values ? s_valueRow : s_setting;
-    const bool on = used && row == mark;
+    const bool on = used && i == mark;
 
-    // The name sits at the left and the value at the right of the window; a
-    // list of values has no name column, so the value takes the whole line.
-    // A list of values takes the whole line; a list of settings keeps the
-    // right hundred pixels for the value it holds.
-    lv_obj_set_x(s_popupRow[i], values ? 26 : (lv_coord_t)(POP_W - 112));
-    lv_obj_set_width(s_popupRow[i], values ? (lv_coord_t)(POP_W - 38) : 100);
-    lv_obj_set_style_text_align(
-        s_popupRow[i], values ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_RIGHT, 0);
+    // The name sits at the left of the window and the value it holds at the
+    // right; a list of values has nothing on the right, so the name carries
+    // the value on its own.
+    lv_label_set_text(s_popupName[i], used ? lines[i][0] : "");
+    lv_obj_set_style_text_color(s_popupName[i],
+                                colour(on ? Theme::ACCENT : Theme::TEXT), 0);
     lv_label_set_text(s_popupRow[i], used ? lines[i][1] : "");
     lv_obj_set_style_text_color(s_popupRow[i],
                                 colour(on ? Theme::ACCENT : Theme::TEXT), 0);
 
-    lv_label_set_text(s_popupName[i], values ? "" : lines[i][0]);
-    lv_obj_set_style_text_color(s_popupName[i],
-                                colour(on ? Theme::ACCENT : Theme::MUTED), 0);
-
-    lv_label_set_text(s_popupMark[i], on ? ">" : "");
-    lv_obj_set_style_text_color(s_popupMark[i],
-                                colour(on ? Theme::ACCENT : Theme::MUTED), 0);
-
-    lv_obj_t *parts[3] = {s_popupRow[i], s_popupName[i], s_popupMark[i]};
+    lv_obj_t *parts[2] = {s_popupRow[i], s_popupName[i]};
     for (lv_obj_t *part : parts) {
       if (used) {
         lv_obj_remove_flag(part, LV_OBJ_FLAG_HIDDEN);
@@ -582,23 +565,21 @@ static void popupOpen(void) {
   lv_obj_remove_flag(s_popup, LV_OBJ_FLAG_SCROLLABLE);
 
   s_popupTitle = text(s_popup, "OPTIONS", &lv_font_montserrat_12, Theme::MUTED,
-                      12, 6, POP_W - 24);
+                      POP_PAD, 6, POP_W - 2 * POP_PAD);
   for (int i = 0; i < RIGHT_ROWS; ++i) {
-    s_popupMark[i] = text(s_popup, "", &lv_font_montserrat_12, Theme::MUTED, 12,
-                          26 + i * LINE_H, 10);
-    s_popupName[i] = text(s_popup, "", &lv_font_montserrat_12, Theme::MUTED, 26,
-                          26 + i * LINE_H, 170);
-    s_popupRow[i] = text(s_popup, "", &lv_font_montserrat_14, Theme::TEXT, 26,
-                         25 + i * LINE_H, POP_W - 40);
+    s_popupName[i] = text(s_popup, "", &lv_font_montserrat_12, Theme::TEXT,
+                          POP_PAD, 26 + i * LINE_H,
+                          POP_W - 2 * POP_PAD - POP_VALUE - 2);
+    s_popupRow[i] = text(s_popup, "", &lv_font_montserrat_12, Theme::TEXT,
+                         POP_W - POP_PAD - POP_VALUE, 26 + i * LINE_H,
+                         POP_VALUE);
+    lv_obj_set_style_text_align(s_popupRow[i], LV_TEXT_ALIGN_RIGHT, 0);
   }
 
   s_setting = 0;
-  s_offset = 0;
   s_focus = kSettings;
-  // The window carries the list while it is open: the column gives it the
-  // page rather than being cut in half by it.
-  s_right.shown(false);
   popupShow();
+  rightShow();
 }
 
 static void popupClose(void) {
@@ -606,7 +587,6 @@ static void popupClose(void) {
     lv_obj_delete(s_popup);
     s_popup = NULL;
   }
-  s_right.shown(true);
 }
 
 // ── the mark ──
@@ -630,19 +610,17 @@ void enter(void) {
     break;
   case kMenu:
     // OPTIONS opens the window; the other lines have nothing behind them yet.
-    if (s_row == 3) {
+    if (s_row == MENU_OPTIONS) {
       popupOpen();
     }
     break;
   case kSettings:
     s_valueRow = s_valuePick[s_setting] < 4 ? s_valuePick[s_setting] : 0;
-    s_offset = 0;
     s_focus = kValue;
     popupShow();
     break;
   case kValue:
     s_valuePick[s_setting] = (uint8_t)s_valueRow;
-    s_offset = 0;
     s_focus = kSettings;
     popupShow();
     break;
@@ -652,7 +630,6 @@ void enter(void) {
 bool leave(void) {
   switch (s_focus) {
   case kValue:
-    s_offset = 0;
     s_focus = kSettings;
     popupShow();
     return true;
