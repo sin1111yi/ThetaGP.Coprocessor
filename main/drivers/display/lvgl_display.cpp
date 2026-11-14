@@ -32,6 +32,9 @@ namespace ThetaGP::Drivers::Display {
 
 void LvglDisplay::init() {
   Nv3007Lcd::getInstance().init();
+  if (Nv3007Lcd::getInstance().panel() == nullptr) {
+    return;
+  }
 
   esp_lv_adapter_config_t config = ESP_LV_ADAPTER_DEFAULT_CONFIG();
   if (esp_lv_adapter_init(&config) != ESP_OK) {
@@ -39,8 +42,7 @@ void LvglDisplay::init() {
     return;
   }
 
-  // The panel is 156x428 native and mounted across the board; the adapter is
-  // told the surface as it is drawn, and the quarter turn is LVGL's own.
+  // MADCTL rotates the panel to 428x156; the adapter sends landscape pixels.
   esp_lv_adapter_display_config_t display =
       ESP_LV_ADAPTER_DISPLAY_SPI_WITHOUT_PSRAM_DEFAULT_CONFIG(
           Nv3007Lcd::getInstance().panel(), Nv3007Lcd::getInstance().io(),
@@ -50,15 +52,13 @@ void LvglDisplay::init() {
     printf("nv3007: no display\n");
     return;
   }
-  lv_display_set_rotation(_display, LV_DISPLAY_ROTATION_270);
 
   if (esp_lv_adapter_start() != ESP_OK) {
     printf("nv3007: adapter did not start\n");
     _display = nullptr;
     return;
   }
-  printf("nv3007: %dx%d ready\n", LCD_H_RES, LCD_V_RES);
+  printf("nv3007: %dx%d ready\n", LCD_V_RES, LCD_H_RES);
 }
-
 
 } // namespace ThetaGP::Drivers::Display

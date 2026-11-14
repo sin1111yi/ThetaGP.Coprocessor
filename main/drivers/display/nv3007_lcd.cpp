@@ -21,12 +21,11 @@
 
 #include "drivers/display/nv3007_lcd.h"
 
-#include <cstring>
+#include <cstdio>
 
 #include "conf/board.h"
 
 #include "driver/gpio.h"
-#include "esp_heap_caps.h"
 #include "esp_lcd_panel_interface.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -35,134 +34,151 @@ namespace ThetaGP::Drivers::Display {
 
 namespace {
 
-struct Command {
+// One step of the panel's power-up: a command with its parameters, or a wait
+// the panel asks for between them.
+struct Step {
   uint8_t reg;
   uint8_t count;
   uint8_t data[16];
+  uint16_t delayMs;
 };
 
-static const Command kInit[] = {
-    {0x9a, 1, {0x08}},
-    {0x9b, 1, {0x08}},
-    {0x9c, 1, {0xb0}},
-    {0x9d, 1, {0x16}},
-    {0x9e, 1, {0xc4}},
-    {0x8f, 2, {0x55, 0x04}},
-    {0x84, 1, {0x90}},
-    {0x83, 1, {0x7b}},
-    {0x85, 1, {0x33}},
-    {0x60, 1, {0x00}},
-    {0x70, 1, {0x00}},
-    {0x61, 1, {0x02}},
-    {0x71, 1, {0x02}},
-    {0x62, 1, {0x04}},
-    {0x72, 1, {0x04}},
-    {0x6c, 1, {0x29}},
-    {0x7c, 1, {0x29}},
-    {0x6d, 1, {0x31}},
-    {0x7d, 1, {0x31}},
-    {0x6e, 1, {0x0f}},
-    {0x7e, 1, {0x0f}},
-    {0x66, 1, {0x21}},
-    {0x76, 1, {0x21}},
-    {0x68, 1, {0x3a}},
-    {0x78, 1, {0x3a}},
-    {0x63, 1, {0x07}},
-    {0x73, 1, {0x07}},
-    {0x64, 1, {0x05}},
-    {0x74, 1, {0x05}},
-    {0x65, 1, {0x02}},
-    {0x75, 1, {0x02}},
-    {0x67, 1, {0x23}},
-    {0x77, 1, {0x23}},
-    {0x69, 1, {0x08}},
-    {0x79, 1, {0x08}},
-    {0x6a, 1, {0x13}},
-    {0x7a, 1, {0x13}},
-    {0x6b, 1, {0x13}},
-    {0x7b, 1, {0x13}},
-    {0x6f, 1, {0x00}},
-    {0x7f, 1, {0x00}},
-    {0x50, 1, {0x00}},
-    {0x52, 1, {0xd6}},
-    {0x53, 1, {0x08}},
-    {0x54, 1, {0x08}},
-    {0x55, 1, {0x1e}},
-    {0x56, 1, {0x1c}},
-    {0xa0, 3, {0x2b, 0x24, 0x00}},
-    {0xa1, 1, {0x87}},
-    {0xa2, 1, {0x86}},
-    {0xa5, 1, {0x00}},
-    {0xa6, 1, {0x00}},
-    {0xa7, 1, {0x00}},
-    {0xa8, 1, {0x36}},
-    {0xa9, 1, {0x7e}},
-    {0xaa, 1, {0x7e}},
-    {0xb9, 1, {0x85}},
-    {0xba, 1, {0x84}},
-    {0xbb, 1, {0x83}},
-    {0xbc, 1, {0x82}},
-    {0xbd, 1, {0x81}},
-    {0xbe, 1, {0x80}},
-    {0xbf, 1, {0x01}},
-    {0xc0, 1, {0x02}},
-    {0xc1, 1, {0x00}},
-    {0xc2, 1, {0x00}},
-    {0xc3, 1, {0x00}},
-    {0xc4, 1, {0x33}},
-    {0xc5, 1, {0x7e}},
-    {0xc6, 1, {0x7e}},
-    {0xc8, 2, {0x33, 0x33}},
-    {0xc9, 1, {0x68}},
-    {0xca, 1, {0x69}},
-    {0xcb, 1, {0x6a}},
-    {0xcc, 1, {0x6b}},
-    {0xcd, 2, {0x33, 0x33}},
-    {0xce, 1, {0x6c}},
-    {0xcf, 1, {0x6d}},
-    {0xd0, 1, {0x6e}},
-    {0xd1, 1, {0x6f}},
-    {0xab, 2, {0x03, 0x67}},
-    {0xac, 2, {0x03, 0x6b}},
-    {0xad, 2, {0x03, 0x68}},
-    {0xae, 2, {0x03, 0x6c}},
-    {0xb3, 1, {0x00}},
-    {0xb4, 1, {0x00}},
-    {0xb5, 1, {0x00}},
-    {0xb6, 1, {0x32}},
-    {0xb7, 1, {0x7e}},
-    {0xb8, 1, {0x7e}},
-    {0xe0, 1, {0x00}},
-    {0xe1, 2, {0x03, 0x0f}},
-    {0xe2, 1, {0x04}},
-    {0xe3, 1, {0x01}},
-    {0xe4, 1, {0x0e}},
-    {0xe5, 1, {0x01}},
-    {0xe6, 1, {0x19}},
-    {0xe7, 1, {0x10}},
-    {0xe8, 1, {0x10}},
-    {0xea, 1, {0x12}},
-    {0xeb, 1, {0xd0}},
-    {0xec, 1, {0x04}},
-    {0xed, 1, {0x07}},
-    {0xee, 1, {0x07}},
-    {0xef, 1, {0x09}},
-    {0xf0, 1, {0xd0}},
-    {0xf1, 1, {0x0e}},
-    {0xf9, 1, {0x17}},
-    {0xf2, 4, {0x2c, 0x1b, 0x0b, 0x20}},
-    {0xe9, 1, {0x29}},
-    {0xec, 1, {0x04}},
-    {0x35, 1, {0x00}},
-    {0x44, 2, {0x00, 0x10}},
-    {0x46, 1, {0x10}},
-    {0x3a, 1, {0x05}},
+static const Step kInit[] = {
+    {0x10, 0, {}, 0},
+    {0x00, 0, {}, 10},
+    {0x01, 0, {}, 0},
+    {0x00, 0, {}, 200},
+    {0x11, 0, {}, 0},
+    {0x00, 0, {}, 300},
+    {0x13, 0, {}, 0},
+    {0x36, 1, {0x00}, 0},
+    {0x3a, 1, {0x55}, 0},
+    {0x29, 0, {}, 0},
+    {0xff, 1, {0xa5}, 0},
+    {0x9a, 1, {0x08}, 0},
+    {0x9b, 1, {0x08}, 0},
+    {0x9c, 1, {0xb0}, 0},
+    {0x9d, 1, {0x16}, 0},
+    {0x9e, 1, {0xc4}, 0},
+    {0x8f, 2, {0x55, 0x04}, 0},
+    {0x84, 1, {0x90}, 0},
+    {0x83, 1, {0x7b}, 0},
+    {0x85, 1, {0x33}, 0},
+    {0x60, 1, {0x00}, 0},
+    {0x70, 1, {0x00}, 0},
+    {0x61, 1, {0x02}, 0},
+    {0x71, 1, {0x02}, 0},
+    {0x62, 1, {0x04}, 0},
+    {0x72, 1, {0x04}, 0},
+    {0x6c, 1, {0x29}, 0},
+    {0x7c, 1, {0x29}, 0},
+    {0x6d, 1, {0x31}, 0},
+    {0x7d, 1, {0x31}, 0},
+    {0x6e, 1, {0x0f}, 0},
+    {0x7e, 1, {0x0f}, 0},
+    {0x66, 1, {0x21}, 0},
+    {0x76, 1, {0x21}, 0},
+    {0x68, 1, {0x3a}, 0},
+    {0x78, 1, {0x3a}, 0},
+    {0x63, 1, {0x07}, 0},
+    {0x73, 1, {0x07}, 0},
+    {0x64, 1, {0x05}, 0},
+    {0x74, 1, {0x05}, 0},
+    {0x65, 1, {0x02}, 0},
+    {0x75, 1, {0x02}, 0},
+    {0x67, 1, {0x23}, 0},
+    {0x77, 1, {0x23}, 0},
+    {0x69, 1, {0x08}, 0},
+    {0x79, 1, {0x08}, 0},
+    {0x6a, 1, {0x13}, 0},
+    {0x7a, 1, {0x13}, 0},
+    {0x6b, 1, {0x13}, 0},
+    {0x7b, 1, {0x13}, 0},
+    {0x6f, 1, {0x00}, 0},
+    {0x7f, 1, {0x00}, 0},
+    {0x50, 1, {0x00}, 0},
+    {0x52, 1, {0xd6}, 0},
+    {0x53, 1, {0x08}, 0},
+    {0x54, 1, {0x08}, 0},
+    {0x55, 1, {0x1e}, 0},
+    {0x56, 1, {0x1c}, 0},
+    {0xa0, 3, {0x2b, 0x24, 0x00}, 0},
+    {0xa1, 1, {0x87}, 0},
+    {0xa2, 1, {0x86}, 0},
+    {0xa5, 1, {0x00}, 0},
+    {0xa6, 1, {0x00}, 0},
+    {0xa7, 1, {0x00}, 0},
+    {0xa8, 1, {0x36}, 0},
+    {0xa9, 1, {0x7e}, 0},
+    {0xaa, 1, {0x7e}, 0},
+    {0xb9, 1, {0x85}, 0},
+    {0xba, 1, {0x84}, 0},
+    {0xbb, 1, {0x83}, 0},
+    {0xbc, 1, {0x82}, 0},
+    {0xbd, 1, {0x81}, 0},
+    {0xbe, 1, {0x80}, 0},
+    {0xbf, 1, {0x01}, 0},
+    {0xc0, 1, {0x02}, 0},
+    {0xc1, 1, {0x00}, 0},
+    {0xc2, 1, {0x00}, 0},
+    {0xc3, 1, {0x00}, 0},
+    {0xc4, 1, {0x33}, 0},
+    {0xc5, 1, {0x7e}, 0},
+    {0xc6, 1, {0x7e}, 0},
+    {0xc8, 2, {0x33, 0x33}, 0},
+    {0xc9, 1, {0x68}, 0},
+    {0xca, 1, {0x69}, 0},
+    {0xcb, 1, {0x6a}, 0},
+    {0xcc, 1, {0x6b}, 0},
+    {0xcd, 2, {0x33, 0x33}, 0},
+    {0xce, 1, {0x6c}, 0},
+    {0xcf, 1, {0x6d}, 0},
+    {0xd0, 1, {0x6e}, 0},
+    {0xd1, 1, {0x6f}, 0},
+    {0xab, 2, {0x03, 0x67}, 0},
+    {0xac, 2, {0x03, 0x6b}, 0},
+    {0xad, 2, {0x03, 0x68}, 0},
+    {0xae, 2, {0x03, 0x6c}, 0},
+    {0xb3, 1, {0x00}, 0},
+    {0xb4, 1, {0x00}, 0},
+    {0xb5, 1, {0x00}, 0},
+    {0xb6, 1, {0x32}, 0},
+    {0xb7, 1, {0x7e}, 0},
+    {0xb8, 1, {0x7e}, 0},
+    {0xe0, 1, {0x00}, 0},
+    {0xe1, 2, {0x03, 0x0f}, 0},
+    {0xe2, 1, {0x04}, 0},
+    {0xe3, 1, {0x01}, 0},
+    {0xe4, 1, {0x0e}, 0},
+    {0xe5, 1, {0x01}, 0},
+    {0xe6, 1, {0x19}, 0},
+    {0xe7, 1, {0x10}, 0},
+    {0xe8, 1, {0x10}, 0},
+    {0xea, 1, {0x12}, 0},
+    {0xeb, 1, {0xd0}, 0},
+    {0xec, 1, {0x04}, 0},
+    {0xed, 1, {0x07}, 0},
+    {0xee, 1, {0x07}, 0},
+    {0xef, 1, {0x09}, 0},
+    {0xf0, 1, {0xd0}, 0},
+    {0xf1, 1, {0x0e}, 0},
+    {0xf9, 1, {0x17}, 0},
+    {0xf2, 4, {0x2c, 0x1b, 0x0b, 0x20}, 0},
+    {0xe9, 1, {0x29}, 0},
+    {0xec, 1, {0x04}, 0},
+    {0x35, 1, {0x00}, 0},
+    {0x44, 2, {0x00, 0x10}, 0},
+    {0x46, 1, {0x10}, 0},
+    {0xff, 1, {0x00}, 0},
+    {0x3a, 1, {0x05}, 0},
+    {0x11, 0, {}, 0},
+    {0x00, 0, {}, 220},
+    {0x29, 0, {}, 0},
+    {0x36, 1, {0x60}, 0},
 };
 
-// The panel takes RGB565 most significant byte first and the renderer hands
-// over the other way round: the bytes are swapped a window at a time.
-static constexpr size_t kSwapBytes = 16384;
-static uint8_t *s_swap;
+// The adapter supplies packed RGB565 bytes in panel wire order, in a buffer
+// it leaves alone until the transfer reports done: they go out as they are.
 static esp_lcd_panel_io_handle_t s_io;
 
 esp_err_t panelReset(esp_lcd_panel_t *panel) {
@@ -184,38 +200,32 @@ esp_err_t panelInit(esp_lcd_panel_t *panel) {
 esp_err_t panelDraw(esp_lcd_panel_t *panel, int x1, int y1, int x2, int y2,
                     const void *data) {
   (void)panel;
-  if (s_io == nullptr || data == nullptr || s_swap == nullptr) {
+  if (s_io == nullptr || data == nullptr) {
     return ESP_ERR_INVALID_ARG;
   }
 
-  const uint8_t cols[4] = {(uint8_t)(x1 >> 8), (uint8_t)x1, (uint8_t)(x2 >> 8),
-                           (uint8_t)x2};
-  const uint8_t rows[4] = {(uint8_t)(y1 >> 8), (uint8_t)y1, (uint8_t)(y2 >> 8),
-                           (uint8_t)y2};
-  (void)esp_lcd_panel_io_tx_param(s_io, 0x2A, cols, sizeof cols);
-  (void)esp_lcd_panel_io_tx_param(s_io, 0x2B, rows, sizeof rows);
-
-  const size_t bytes = (size_t)(x2 - x1 + 1) * (size_t)(y2 - y1 + 1) * 2;
-  const auto *source = static_cast<const uint8_t *>(data);
-  size_t at = 0;
-  bool first = true;
-
-  while (at < bytes) {
-    const size_t chunk = (bytes - at) < kSwapBytes ? (bytes - at) : kSwapBytes;
-    for (size_t i = 0; i < chunk; i += 2) {
-      s_swap[i] = source[at + i + 1];
-      s_swap[i + 1] = source[at + i];
-    }
-    const esp_err_t sent =
-        first ? esp_lcd_panel_io_tx_color(s_io, 0x2C, s_swap, chunk)
-              : esp_lcd_panel_io_tx_color(s_io, -1, s_swap, chunk);
-    if (sent != ESP_OK) {
-      return sent;
-    }
-    first = false;
-    at += chunk;
+  // ESP LCD rectangles have exclusive end coordinates.
+  if (x1 < 0 || y1 < 0 || x2 > LCD_V_RES || y2 > LCD_H_RES ||
+      x2 <= x1 || y2 <= y1) {
+    return ESP_ERR_INVALID_ARG;
   }
-  return ESP_OK;
+  const size_t bytes = (size_t)(x2 - x1) * (size_t)(y2 - y1) * 2;
+
+  const uint8_t cols[4] = {(uint8_t)(x1 >> 8), (uint8_t)x1,
+                           (uint8_t)((x2 - 1) >> 8), (uint8_t)(x2 - 1)};
+  const uint8_t rows[4] = {(uint8_t)(y1 >> 8), (uint8_t)y1,
+                           (uint8_t)((y2 - 1) >> 8), (uint8_t)(y2 - 1)};
+  esp_err_t sent = esp_lcd_panel_io_tx_param(s_io, 0x2A, cols, sizeof cols);
+  if (sent != ESP_OK) {
+    return sent;
+  }
+  sent = esp_lcd_panel_io_tx_param(s_io, 0x2B, rows, sizeof rows);
+  if (sent != ESP_OK) {
+    return sent;
+  }
+  // One color transfer, however the bus splits it, produces one completion
+  // notification to the adapter.
+  return esp_lcd_panel_io_tx_color(s_io, 0x2C, data, bytes);
 }
 
 esp_err_t panelDel(esp_lcd_panel_t *panel) {
@@ -293,15 +303,15 @@ void Nv3007Lcd::init() {
   io.trans_queue_depth = 10;
   io.lcd_cmd_bits = 8;
   io.lcd_param_bits = 8;
-  ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(
-      static_cast<esp_lcd_spi_bus_handle_t>(LCD_SPI_HOST), &io, &_io));
-  s_io = _io;
-
-  s_swap = static_cast<uint8_t *>(
-      heap_caps_malloc(kSwapBytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
-  if (s_swap == nullptr) {
-    printf("nv3007: no swap buffer\n");
+  esp_err_t made = esp_lcd_new_panel_io_spi(
+      static_cast<esp_lcd_spi_bus_handle_t>(LCD_SPI_HOST), &io, &_io);
+  // The bus divides its own clock down to the nearest rate at or under this.
+  printf("nv3007: io %s (%d), %u Hz asked\n", esp_err_to_name(made),
+         (int)made, (unsigned)LCD_SPI_HZ);
+  if (made != ESP_OK) {
+    return;
   }
+  s_io = _io;
 
   auto *panel = new esp_lcd_panel_t();
   panel->reset = panelReset;
@@ -318,9 +328,20 @@ void Nv3007Lcd::init() {
   _panel = panel;
 
   (void)panelReset(_panel);
-  for (const Command &command : kInit) {
-    (void)esp_lcd_panel_io_tx_param(_io, command.reg, command.data,
-                                    command.count);
+  printf("nv3007: %u commands\n", (unsigned)(sizeof kInit / sizeof kInit[0]));
+  for (const Step &step : kInit) {
+    if (step.delayMs != 0) {
+      vTaskDelay(pdMS_TO_TICKS(step.delayMs));
+      continue;
+    }
+    const esp_err_t sent =
+        esp_lcd_panel_io_tx_param(_io, step.reg, step.data, step.count);
+    if (sent != ESP_OK) {
+      printf("nv3007: command %02x refused: %s\n", step.reg,
+             esp_err_to_name(sent));
+      _panel = nullptr;
+      return;
+    }
   }
 }
 
