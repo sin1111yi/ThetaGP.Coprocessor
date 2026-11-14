@@ -51,8 +51,28 @@ def compiler():
     return [], find(["cc", "gcc", "clang"]) or "CMake default"
 
 
+def cached_generator():
+    """The generator the build tree was configured with, if it has one."""
+    try:
+        with open(os.path.join(BUILD, "CMakeCache.txt")) as cache:
+            for line in cache:
+                if line.startswith("CMAKE_GENERATOR:"):
+                    return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return None
+
+
 def generator():
     """A generator, and whether it picks the build type at build time."""
+    # A tree that is already configured keeps the generator it has: CMake
+    # refuses another one, and which tools are on PATH changes between runs
+    # (a ninja that appears with an ESP-IDF environment, say).
+    cached = cached_generator()
+    if cached:
+        multiconfig = (cached.startswith("Visual Studio")
+                       or cached in ("Xcode", "Ninja Multi-Config"))
+        return ["-G", cached], multiconfig
     if find(["ninja"]):
         return ["-G", "Ninja"], False
     if sys.platform.startswith("win"):
@@ -91,14 +111,16 @@ def main():
               "https://cmake.org/download/")
         return 1
 
+    # Before the generator is chosen: a tree that is thrown away has no say
+    # in it.
+    if args.clean:
+        shutil.rmtree(BUILD, ignore_errors=True)
+
     flags, multiconfig = generator()
     compiler_flags, compiler_name = compiler()
     print("simulate: %s %s, %s, %s" %
           (system(), platform.machine() or "?", compiler_name,
            flags[1] if flags else "CMake default"), flush=True)
-
-    if args.clean:
-        shutil.rmtree(BUILD, ignore_errors=True)
 
     configure = [cmake, "-S", HERE, "-B", BUILD,
                  "-DCMAKE_BUILD_TYPE=Release"] + flags + compiler_flags
