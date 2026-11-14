@@ -325,17 +325,17 @@ void build(lv_obj_t *root) {
     lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_labels[i] = text(card, "", &lv_font_montserrat_12, Theme::MUTED, 12, 4,
-                       120);
+    s_labels[i] = text(card, "", &lv_font_montserrat_12, Theme::MUTED, 5, 4,
+                       140);
     lv_obj_set_style_text_letter_space(s_labels[i], 1, 0);
 
     s_values[i] = lv_label_create(card);
     lv_obj_set_style_text_font(s_values[i], &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_values[i], colour(Theme::TEXT), 0);
-    lv_obj_set_width(s_values[i], PARAM_W - 24);
+    lv_obj_set_width(s_values[i], PARAM_W - 10);
     lv_obj_set_style_text_align(s_values[i], LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_long_mode(s_values[i], LV_LABEL_LONG_CLIP);
-    lv_obj_align(s_values[i], LV_ALIGN_RIGHT_MID, -12, 0);
+    lv_obj_align(s_values[i], LV_ALIGN_RIGHT_MID, -5, 0);
 
     s_paramCards[i] = card;
   }

@@ -262,8 +262,8 @@ static void paint_right(const char lines[RIGHT_ROWS][2][40], int focusRow) {
     label.color = colour(on ? Theme::ACCENT : Theme::MUTED);
     label.text = lines[i][0];
     label.text_length = (uint32_t)std::strlen(lines[i][0]);
-    lv_area_t labelArea = {12, (lv_coord_t)(top + 5),
-                           (lv_coord_t)(RIGHT_W - 13),
+    lv_area_t labelArea = {5, (lv_coord_t)(top + 5),
+                           (lv_coord_t)(RIGHT_W - 6),
                            (lv_coord_t)(top + 18)};
     lv_draw_label(&layer, &label, &labelArea);
 
