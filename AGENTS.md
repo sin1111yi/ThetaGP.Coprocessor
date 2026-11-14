@@ -6,7 +6,10 @@ checks without hardware.
 
 ## Build and run
 
-Firmware (requires ESP-IDF `6.1.0` per `dependencies.lock`, with `IDF_PATH` set):
+Firmware (requires ESP-IDF `6.1.0`, with `IDF_PATH` set; the codec generator
+also needs `protoc` and python-protobuf installed for the system Python;
+`cmake/link.cmake` prefers `/usr/bin/python3` over the IDF venv and stops the
+configure with an error if either is missing):
 
 - `idf.py build` — uses `sdkconfig.defaults`, output in `build/`
 - Presets (Ninja): `cmake --preset esp32s3` then `cmake --build --preset esp32s3`
@@ -29,10 +32,18 @@ Simulator (no hardware; use this to verify UI changes):
 ## Architecture
 
 - Entry: `main/main.cpp` `app_main` → `Coprocessor::setup()` then `run()`.
-  `setup` inits `Nv3007Panel` → `LvglDisplay` → `Ui::Menu::init()` and seeds the
-  model; `run` is an `lv_timer_handler()` loop.
+  `setup` inits `LvglDisplay` (which brings up `Nv3007Lcd` and starts
+  `esp_lvgl_adapter`) → `Ui::Menu::init()` and seeds the model. The adapter
+  owns the LVGL task, tick and lock; `run` is the protocol loop, paced by a
+  10 ms `esp_timer`, and touches widgets only under `esp_lv_adapter_lock`.
+- `main/drivers/display/nv3007_lcd.cpp` is a hand-written `esp_lcd` panel for
+  the NV3007: its power-up sequence plus window-and-write. The adapter already
+  byte-swaps RGB565 and passes exclusive end coordinates to `draw_bitmap`; do
+  not swap again in the driver.
 - `main/conf/board.h` holds the panel pins and sizes. Native panel is 156x428,
-  mounted sideways; LVGL rotates 270° so the UI surface is 428x156.
+  mounted sideways; MADCTL (`0x36 = 0x60`, last step of the init sequence)
+  turns it so the UI surface is 428x156. The adapter does not rotate SPI
+  panels, so do not use `lv_display_set_rotation`.
 - `main/ui/menu.h` `Model` is the seam for the `ThetaGP.PB` protocol, which is
   **not wired in yet**. Protocol code should call the `Menu::set*` / navigation
   functions rather than touch widgets.
@@ -41,20 +52,37 @@ Simulator (no hardware; use this to verify UI changes):
   `simulate/include/driver/`; `gpio_get_level` always returns idle, so the board
   button does nothing there — keyboard drives navigation.
 - The simulator draws straight into SDL and never compiles
-  `nv3007_panel.cpp` / `lvgl_display.cpp`; it validates the UI, not the SPI
-  panel driver (including the RGB565 byte swap).
+  `nv3007_lcd.cpp` / `lvgl_display.cpp`; it validates the UI, not the SPI
+  panel driver or the adapter (including the RGB565 byte swap).
+
+## Dependencies
+
+- Nothing is vendored. `lib/CMakeLists.txt` is the one place that pins and
+  fetches every support library, at configure time, into gitignored
+  directories under `lib/`; both builds `include()` it and call
+  `thetagp_require(<name>...)`:
+  - `lvgl` → `lib/lvgl`, git commit `85aa60d…` (v9.5.0)
+  - `nanopb` → `lib/nanopb`, git commit `93550bb…` (0.4.9.3)
+  - `sdl2` → `lib/sdl2`, git commit `5d24957…` (2.32.10), simulator only
+  - `esp_lvgl_adapter` 0.7.8 → `lib/espressif__esp_lvgl_adapter` and
+    `esp_lcd_touch` 1.2.1 → `lib/espressif__esp_lcd_touch`, registry archives
+    checked against a SHA-256
+- The ESP-IDF component manager is **off** (`IDF_COMPONENT_MANAGER=0`, set in
+  the root `CMakeLists.txt`): there is no `idf_component.yml`,
+  `dependencies.lock` or `managed_components/`. A new ESP component is a new
+  pin in `lib/CMakeLists.txt`, its dependencies included, plus an entry in
+  `EXTRA_COMPONENT_DIRS`.
+- To move a pin, change its `THETAGP_*_TAG` / `_VERSION` + `_SHA256`; the next
+  configure moves the checkout. A tree already in place without `.git` (or,
+  for archives, without `.thetagp-pin`) is used as is, with no network. Do not
+  edit the fetched trees.
+- `lib/ThetaGP.PB` is the exception: a git submodule, pinned by the repository.
 
 ## LVGL and configuration gotchas
 
-- LVGL is **not vendored**. `cmake/lvgl.cmake` fetches it at configure time into
-  `lib/lvgl` (gitignored), pinned to commit `85aa60d…` (v9.5.0); a source tree
-  already there (e.g. an unpacked release archive) is used as is, without git
-  and without network. Do not edit `lib/lvgl`; change `THETAGP_LVGL_TAG` to
-  move the pin.
 - Two different LVGL configs:
-  - Firmware: Kconfig via `sdkconfig.defaults`, plus `LV_USE_NV3007=1` added as a
-    compile definition in the root `CMakeLists.txt` (LVGL 9.5.0 has no Kconfig
-    switch for NV3007). Requires `CONFIG_LV_USE_GENERIC_MIPI=y`.
+  - Firmware: Kconfig via `sdkconfig.defaults`. LVGL's own NV3007 / generic
+    MIPI drivers are not used; the panel is driven through `esp_lcd`.
   - Simulator: `simulate/lv_conf.h`.
   - Keep both in sync (color depth 16, Montserrat 12/14/20 fonts, widget set).
 - `sdkconfig.defaults` only seeds a fresh `sdkconfig`; delete the generated
