@@ -52,8 +52,11 @@ using Theme::text;
 #define RIGHT_X     200
 #define RIGHT_W     214
 #define LINE_H      18
-#define RIGHT_ROWS  6
-#define RIGHT_Y     ((140 - LINE_H * RIGHT_ROWS) / 2)
+#define RIGHT_ROWS  4
+#define RIGHT_CARD  26
+#define RIGHT_PITCH 30
+#define RIGHT_Y     ((140 - RIGHT_PITCH * RIGHT_ROWS) / 2)
+#define RIGHT_H     (RIGHT_PITCH * RIGHT_ROWS)
 #define MOVE_MS     480
 
 // The window a setting is edited in: smaller than the screen, over the middle
@@ -238,15 +241,20 @@ static void paint_right(const char lines[RIGHT_ROWS][2][40], int focusRow) {
     if (lines[i][0][0] == '\0') {
       continue;
     }
-    const lv_coord_t top = (lv_coord_t)(i * LINE_H);
     const bool on = i == focusRow;
+    const lv_coord_t top = (lv_coord_t)(i * RIGHT_PITCH);
 
-    lv_draw_rect_dsc_t rule;
-    lv_draw_rect_dsc_init(&rule);
-    rule.bg_color = colour(Theme::BORDER);
-    rule.bg_opa = LV_OPA_COVER;
-    lv_area_t ruleArea = {0, top, (lv_coord_t)(RIGHT_W - 1), top};
-    lv_draw_rect(&layer, &rule, &ruleArea);
+    // A card with no fill and a hairline: the page shows through it.
+    lv_draw_rect_dsc_t card;
+    lv_draw_rect_dsc_init(&card);
+    card.bg_opa = LV_OPA_TRANSP;
+    card.border_color = colour(on ? Theme::ACCENT : Theme::BORDER);
+    card.border_width = 1;
+    card.border_opa = LV_OPA_COVER;
+    card.radius = 7;
+    lv_area_t cardArea = {0, top, (lv_coord_t)(RIGHT_W - 1),
+                          (lv_coord_t)(top + RIGHT_CARD - 1)};
+    lv_draw_rect(&layer, &card, &cardArea);
 
     lv_draw_label_dsc_t label;
     lv_draw_label_dsc_init(&label);
@@ -254,8 +262,9 @@ static void paint_right(const char lines[RIGHT_ROWS][2][40], int focusRow) {
     label.color = colour(on ? Theme::ACCENT : Theme::MUTED);
     label.text = lines[i][0];
     label.text_length = (uint32_t)std::strlen(lines[i][0]);
-    lv_area_t labelArea = {0, (lv_coord_t)(top + 2), (lv_coord_t)(RIGHT_W - 1),
-                           (lv_coord_t)(top + 15)};
+    lv_area_t labelArea = {12, (lv_coord_t)(top + 5),
+                           (lv_coord_t)(RIGHT_W - 13),
+                           (lv_coord_t)(top + 18)};
     lv_draw_label(&layer, &label, &labelArea);
 
     lv_draw_label_dsc_t value;
@@ -440,18 +449,18 @@ void build(lv_obj_t *root) {
   s_right = lv_obj_create(root);
   lv_obj_remove_style_all(s_right);
   lv_obj_set_pos(s_right, RIGHT_X, RIGHT_Y);
-  lv_obj_set_size(s_right, RIGHT_W, LINE_H * RIGHT_ROWS);
+  lv_obj_set_size(s_right, RIGHT_W, RIGHT_H);
   lv_obj_set_style_bg_opa(s_right, LV_OPA_TRANSP, 0);
   lv_obj_remove_flag(s_right, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(s_right, LV_OBJ_FLAG_SCROLLABLE);
 
   s_rightPixels =
-      (uint8_t *)std::malloc((size_t)RIGHT_W * LINE_H * RIGHT_ROWS * 2);
+      (uint8_t *)std::malloc((size_t)RIGHT_W * RIGHT_H * 2);
   if (s_rightPixels != NULL) {
     s_rightCanvas = lv_canvas_create(s_right);
     lv_obj_remove_style_all(s_rightCanvas);
-    lv_canvas_set_buffer(s_rightCanvas, s_rightPixels, RIGHT_W,
-                         LINE_H * RIGHT_ROWS, LV_COLOR_FORMAT_RGB565);
+    lv_canvas_set_buffer(s_rightCanvas, s_rightPixels, RIGHT_W, RIGHT_H,
+                         LV_COLOR_FORMAT_RGB565);
     lv_obj_set_pos(s_rightCanvas, 0, 0);
     lv_obj_remove_flag(s_rightCanvas, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(s_rightCanvas, LV_OBJ_FLAG_SCROLLABLE);
