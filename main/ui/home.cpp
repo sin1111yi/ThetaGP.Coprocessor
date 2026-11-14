@@ -71,23 +71,13 @@ using Theme::text;
 #define PARAM_H     (PARAM_LINE * PARAM_ROWS)
 #define PARAM_Y     ((140 - PARAM_H) / 2)
 
-// The link line: the panel's own name while it is alone, and both names
-// rolling upwards through it once the board answers.
-#define LINK_SLOT_X PARAM_X
-#define LINK_SLOT_Y 110
-#define LINK_SLOT_W PARAM_W
-#define LINK_SLOT_H 18
-#define BAND_CHARS  32 // the most a line carries, whatever the link reports
-
 static const char *const ICONS[CARD_COUNT] = {
     LV_SYMBOL_EYE_OPEN, LV_SYMBOL_SETTINGS, LV_SYMBOL_KEYBOARD,
     LV_SYMBOL_DIRECTORY, LV_SYMBOL_FILE};
 
 static const char *const PARAM_KEYS[CARD_COUNT][PARAM_ROWS] = {
-    {"LINK", "RATE", "PROFILE", "PEER"},
-    {"INPUT", "REPORT", "SAVE", "MODE"},
-    {"KEYS", "LAYER", "MODE", "DEFAULT"},
-    {"ID", "COUNT", "NAME", "STATE"},
+    {"LINK", "RATE", "PROFILE", "PEER"},  {"INPUT", "REPORT", "SAVE", "MODE"},
+    {"KEYS", "LAYER", "MODE", "DEFAULT"}, {"ID", "COUNT", "NAME", "STATE"},
     {"BOARD", "MCU", "FW", "PANEL"},
 };
 
@@ -97,22 +87,10 @@ static float s_anim_diff;
 static lv_obj_t *s_cards[CARD_COUNT];
 static lv_obj_t *s_titles[CARD_COUNT];
 static lv_obj_t *s_icons[CARD_COUNT];
-static lv_obj_t *s_params;      // the window the strip is seen through
+static lv_obj_t *s_params;       // the window the strip is seen through
 static lv_obj_t *s_paramsCanvas; // the two blocks that roll under it
 static uint8_t *s_paramsPixels;
 static lv_obj_t *s_thumb;
-static lv_obj_t *s_ticker;
-
-static char s_bandLine[128];
-// Whether the band turns: it only does once the main board is answering.
-static bool s_bandRolling = false;
-static lv_obj_t *s_band;
-static uint8_t *s_bandPixels;
-static void band_free(void);
-static void band_build(const char *first, const char *second);
-static void band_timer(lv_timer_t *timer);
-static int32_t band_path(const lv_anim_t *anim);
-static void show_link(void);
 
 // ── the parameters column ──
 
@@ -130,8 +108,7 @@ static void params(uint8_t item, char out[PARAM_ROWS][2][26]) {
     snprintf(out[1][1], 26, "%u Hz", (unsigned)m.report_hz);
     snprintf(out[2][1], 26, "%s %u/%u", m.profile_name, (unsigned)m.profile_id,
              (unsigned)m.profile_count);
-    snprintf(out[3][1], 26, "%s",
-             m.peer_id[0] != '\0' ? m.peer_id : "-");
+    snprintf(out[3][1], 26, "%s", m.peer_id[0] != '\0' ? m.peer_id : "-");
     break;
   case 1:
     snprintf(out[0][1], 26, "button");
@@ -174,7 +151,7 @@ static void params_paint(const char first[PARAM_ROWS][2][26],
   lv_canvas_init_layer(s_paramsCanvas, &layer);
 
   for (uint8_t pass = 0; pass < 2; ++pass) {
-    const char(*rows)[2][26] = pass == 0 ? first : second;
+    const char (*rows)[2][26] = pass == 0 ? first : second;
     for (uint8_t i = 0; i < PARAM_ROWS; ++i) {
       const lv_coord_t top = (lv_coord_t)(pass * PARAM_H + i * PARAM_LINE);
 
@@ -229,6 +206,17 @@ static void params_roll_done(lv_anim_t *anim) {
 }
 
 // Rolls the strip one whole block, in the direction the mark moved.
+// A damped turn: the block starts slowly, runs through the middle and is
+// settled well before the move is over.
+static int32_t damped_path(const lv_anim_t *anim) {
+  const float t = (float)anim->act_time / (float)anim->duration;
+  const float settle =
+      1.0f -
+      std::exp(-9.0f * t) * (std::cos(11.0f * t) + 0.82f * std::sin(11.0f * t));
+  return anim->start_value +
+         (int32_t)((float)(anim->end_value - anim->start_value) * settle);
+}
+
 static void params_roll(int step) {
   if (s_paramsCanvas == NULL) {
     return;
@@ -263,7 +251,7 @@ static void params_roll(int step) {
   lv_anim_set_exec_cb(&anim, [](void *var, int32_t value) {
     lv_obj_set_y((lv_obj_t *)var, (lv_coord_t)value);
   });
-  lv_anim_set_path_cb(&anim, band_path);
+  lv_anim_set_path_cb(&anim, damped_path);
   lv_anim_set_duration(&anim, 480);
   lv_anim_set_completed_cb(&anim, params_roll_done);
   lv_anim_start(&anim);
@@ -330,190 +318,6 @@ void layout(void) {
   lv_obj_set_y(s_thumb, (int)(t * (RAIL_H - THUMB_H)));
 }
 
-// ── the link line ──
-
-// Keeps the first `cap` characters of a line and drops the rest.
-static void cut(char *line, size_t cap) {
-  if (std::strlen(line) > cap) {
-    line[cap] = '\0';
-  }
-}
-
-// Paints the line for the state the model carries, once per change. It rests
-// on its first entry and the timer turns it: the answer is worth reading
-// before it scrolls away.
-static void show_link(void) {
-  // The model's fields are bounded, so these hold a whole identifier and
-  // version; the line itself carries the first BAND_CHARS of the pair.
-  char first[48];
-  char second[48] = "ThetaGP.Coprocessor";
-
-  const Model &m = model();
-  const bool identified = m.link && m.peer_id[0] != '\0';
-  if (identified) {
-    snprintf(first, sizeof first, "%s %s", m.peer_id, m.peer_version);
-    cut(first, BAND_CHARS);
-  } else {
-    // Alone, the panel holds its own name still: nothing about a link that is
-    // not there is worth a moving line.
-    snprintf(first, sizeof first, "ThetaGP.Coprocessor");
-    snprintf(second, sizeof second, "ThetaGP.Coprocessor");
-  }
-
-  char key[128];
-  snprintf(key, sizeof key, "%s|%s", first, second);
-  if (std::strcmp(s_bandLine, key) == 0) {
-    return;
-  }
-  std::strncpy(s_bandLine, key, sizeof s_bandLine - 1);
-  s_bandLine[sizeof s_bandLine - 1] = '\0';
-  band_build(first, second);
-
-  s_bandRolling = identified;
-}
-
-// The band is drawn once into a bitmap and slid, not drawn again every frame:
-// blending glyphs costs milliseconds, copying a strip costs tens of
-// microseconds, and a slow crawl is only smooth when every step lands on time.
-#define BAND_TEXT  14 // the glyphs of Montserrat 12
-#define BAND_PAD   2  // air above and below every line
-#define BAND_LIFT  2  // the glyphs sit low in their own box
-#define BAND_LINE  (BAND_TEXT + BAND_PAD * 2)
-#define BAND_LINES 3 // the pair, and the first one again
-#define BAND_H     (BAND_LINE * BAND_LINES)
-#define BAND_MS    900  // one line's turn, damped
-#define BAND_REST  2100 // how long a line is given once it is in place
-#define BAND_TURN  (BAND_MS + BAND_REST)
-
-static int s_bandY; // 0 or -BAND_LINE: which of the two lines is in the window
-
-static void band_y_cb(void *var, int32_t value) {
-  (void)var;
-  if (s_band != NULL) {
-    lv_obj_set_y(s_band, (int)value);
-  }
-}
-
-// One line leaves the window and the next takes its place; after two of those
-// the content is where it started, so the bitmap rewinds under it unseen.
-static void band_step_done(lv_anim_t *anim) {
-  (void)anim;
-  s_bandY = s_bandY - BAND_LINE;
-  if (s_bandY <= -(BAND_LINE * 2)) {
-    s_bandY = 0;
-  }
-  if (s_band != NULL) {
-    lv_obj_set_y(s_band, s_bandY);
-  }
-}
-
-static void band_timer(lv_timer_t *timer) {
-  (void)timer;
-  if (s_band == NULL || !s_bandRolling) {
-    return;
-  }
-
-  lv_anim_delete(s_band, band_y_cb);
-  lv_anim_t step;
-  lv_anim_init(&step);
-  lv_anim_set_var(&step, s_band);
-  lv_anim_set_values(&step, s_bandY, s_bandY - BAND_LINE);
-  lv_anim_set_exec_cb(&step, band_y_cb);
-  lv_anim_set_path_cb(&step, band_path);
-  lv_anim_set_duration(&step, BAND_MS);
-  lv_anim_set_completed_cb(&step, band_step_done);
-  lv_anim_start(&step);
-}
-
-// A damped turn: the lines start slowly, run through the middle and are
-// settled well before the turn is over, so the rest at the end is a rest and
-// not a crawl.
-static int32_t band_path(const lv_anim_t *anim) {
-  const float t = (float)anim->act_time / (float)anim->duration;
-  const float settle =
-      1.0f -
-      std::exp(-9.0f * t) * (std::cos(11.0f * t) + 0.82f * std::sin(11.0f * t));
-  return anim->start_value +
-         (int32_t)((float)(anim->end_value - anim->start_value) * settle);
-}
-
-// Paints the pair twice into the bitmap, so the lines leaving the top are the
-// ones arriving at the bottom.
-static void band_paint(const char *first, const char *second, int width) {
-  if (s_band == NULL) {
-    return;
-  }
-
-  lv_canvas_fill_bg(s_band, colour(Theme::BG), LV_OPA_COVER);
-
-  lv_layer_t layer;
-  lv_canvas_init_layer(s_band, &layer);
-
-  // The entries alternate, and the band holds three of them so the copy that
-  // leaves the top is the one arriving at the bottom.
-  const char *entries[BAND_LINES] = {first, second, first};
-  for (int i = 0; i < BAND_LINES; ++i) {
-    lv_draw_label_dsc_t dsc;
-    lv_draw_label_dsc_init(&dsc);
-    dsc.font = &lv_font_montserrat_12;
-    dsc.color = colour(Theme::MUTED);
-    dsc.text = entries[i];
-    dsc.text_length = (uint32_t)std::strlen(entries[i]);
-    // The line ends on the column's right mark, so it reads as the last of the
-    // parameters rather than as a caption of its own.
-    dsc.align = LV_TEXT_ALIGN_RIGHT;
-
-    // Two pixels of air above the glyphs, two below: the band is drawn line by
-    // line so that padding is exact rather than a guess at line spacing.
-    const lv_coord_t top = (lv_coord_t)(i * BAND_LINE + BAND_PAD - BAND_LIFT);
-    lv_area_t area = {0, top, (lv_coord_t)(width - 1),
-                      (lv_coord_t)(top + BAND_TEXT - 1)};
-    lv_draw_label(&layer, &dsc, &area);
-  }
-
-  lv_canvas_finish_layer(s_band, &layer);
-}
-
-// Lets go of the bitmap and the canvas that showed it.
-static void band_free(void) {
-  if (s_band != NULL) {
-    lv_obj_delete(s_band);
-    s_band = NULL;
-  }
-  if (s_bandPixels != NULL) {
-    std::free(s_bandPixels);
-    s_bandPixels = NULL;
-  }
-}
-
-static void band_build(const char *first, const char *second) {
-  const int width = LINK_SLOT_W;
-
-  band_free();
-
-  // The bitmap is a menu-sized block, not a widget's: it comes from the system
-  // heap, because LVGL's own pool is 64 kB and the panel's objects live there.
-  s_bandPixels = (uint8_t *)std::malloc((size_t)width * BAND_H * 2);
-  if (s_bandPixels == NULL) {
-    return;
-  }
-
-  s_band = lv_canvas_create(s_ticker);
-  // The default style pads and frames its content, which would push the bitmap
-  // down inside the line and clip it at the bottom.
-  lv_obj_remove_style_all(s_band);
-  lv_canvas_set_buffer(s_band, s_bandPixels, width, BAND_H,
-                       LV_COLOR_FORMAT_RGB565);
-  lv_obj_set_pos(s_band, 0, 0);
-  lv_obj_remove_flag(s_band, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(s_band, LV_OBJ_FLAG_SCROLLABLE);
-
-  band_paint(first, second, width);
-
-  s_bandY = 0;
-  lv_obj_set_y(s_band, 0);
-}
-
 // ── the page ──
 
 void build(lv_obj_t *root) {
@@ -575,22 +379,10 @@ void build(lv_obj_t *root) {
   lv_obj_set_size(s_thumb, 2, THUMB_H);
   lv_obj_set_style_radius(s_thumb, 1, 0);
   fill(s_thumb, THUMB);
-
-  // The link line holds the band that turns through it; the canvas inside is
-  // as tall as the band, and this is the window it shows one entry through.
-  s_ticker = lv_obj_create(root);
-  lv_obj_remove_style_all(s_ticker);
-  lv_obj_set_pos(s_ticker, LINK_SLOT_X, LINK_SLOT_Y);
-  lv_obj_set_size(s_ticker, LINK_SLOT_W, LINK_SLOT_H);
-  lv_obj_remove_flag(s_ticker, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(s_ticker, LV_OBJ_FLAG_SCROLLABLE);
-
-  show_link();
 }
 
 void free(void) {
   lv_anim_delete(&s_scroll, NULL);
-  band_free();
   if (s_paramsCanvas != NULL) {
     lv_obj_delete(s_paramsCanvas);
     s_paramsCanvas = NULL;
@@ -600,7 +392,6 @@ void free(void) {
     s_paramsPixels = NULL;
   }
   s_params = NULL;
-  s_ticker = NULL;
 }
 
 // An underdamped spring: the column and the thumb reach the next place a
@@ -646,15 +437,10 @@ void step(int step) {
 }
 
 void refresh(void) {
-  show_link();
   // The strip prints the link too, and a value that moved is repainted where
   // it stands: only a move of the mark rolls it.
   params_show();
   layout();
 }
-
-void showLink(void) { show_link(); }
-
-void begin(void) { lv_timer_create(band_timer, BAND_TURN, NULL); }
 
 } // namespace ThetaGP::Ui::Home

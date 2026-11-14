@@ -496,7 +496,6 @@ void init() {
   button.pull_up_en = GPIO_PULLUP_ENABLE;
   gpio_config(&button);
   lv_timer_create(button_timer, 20, NULL);
-  Home::begin();
 
   show(&PAGE_MAIN);
   splash();
@@ -514,9 +513,6 @@ void setPeer(const char *id, const char *version) {
     std::strncpy(s_model.peer_version, version,
                  sizeof s_model.peer_version - 1);
     s_model.peer_version[sizeof s_model.peer_version - 1] = '\0';
-  }
-  if (s_page == &PAGE_MAIN) {
-    Home::showLink();
   }
 }
 

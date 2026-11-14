@@ -29,10 +29,6 @@
 
 namespace ThetaGP::Ui::Home {
 
-// Starts the timer that turns the link line. Called once, when the menu is
-// first built.
-void begin();
-
 // Fills `root` with the page. `free()` runs before the root is cleaned: the
 // link line's pixels live outside LVGL's own heap.
 void build(lv_obj_t *root);
@@ -42,10 +38,8 @@ void free(void);
 // parameters from the model.
 void layout(void);
 
-// Repaints the link line for the model as it now stands; `refresh` also
-// refills the parameters, which print the link.
+// Repaints the column for the model as it now stands.
 void refresh(void);
-void showLink(void);
 
 // The place the column has settled on, and the two ways it moves: one place
 // with the spring, or straight there.
