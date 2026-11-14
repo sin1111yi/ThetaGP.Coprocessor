@@ -20,8 +20,8 @@
 idf_component_register(
     SRCS "main.cpp"
          "Coprocessor.cpp"
-         "drivers/display/nv3007_panel.cpp"
          "drivers/display/lvgl_display.cpp"
+         "drivers/display/nv3007_lcd.cpp"
          "drivers/link/link.cpp"
          "drivers/link/panel_protocol.cpp"
          "pb/Link.pb.c"
@@ -33,4 +33,15 @@ idf_component_register(
          "ui/home.cpp"
          "ui/logo.c"
     INCLUDE_DIRS "." "pb" "${THETAGP_NANOPB_DIR}"
-    REQUIRES lvgl esp_timer esp_driver_spi esp_driver_gpio esp_driver_uart)
+    REQUIRES lvgl esp_timer esp_driver_spi esp_driver_gpio esp_driver_uart
+             esp_lcd espressif__esp_lvgl_adapter)
+
+# The panel is built on esp_lcd's panel interface, whose header is the
+# component's own rather than one of the exported ones.
+target_include_directories(${COMPONENT_LIB} PRIVATE
+    "${IDF_PATH}/components/esp_lcd/interface")
+
+# The adapter's default-config macros leave fields to the compiler: that is
+# their shape, not a mistake in a line here.
+target_compile_options(${COMPONENT_LIB} PRIVATE
+    -Wno-missing-field-initializers -Wno-error=missing-field-initializers)

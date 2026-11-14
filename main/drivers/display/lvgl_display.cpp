@@ -24,9 +24,9 @@
 #include <cstdio>
 
 #include "conf/board.h"
-#include "drivers/display/nv3007_panel.h"
+#include "drivers/display/nv3007_lcd.h"
 
-#include "esp_heap_caps.h"
+#include "esp_lv_adapter.h"
 #include "esp_timer.h"
 
 namespace ThetaGP::Drivers::Display {
@@ -36,35 +36,34 @@ uint32_t LvglDisplay::tickMs() {
 }
 
 void LvglDisplay::init() {
-  lv_init();
-  lv_tick_set_cb(tickMs);
+  Nv3007Lcd::getInstance().init();
 
-  // The panel is 156x428 native and mounted across the board; the drawing
-  // surface is the quarter turn that puts it upright.
-  _display =
-      lv_nv3007_create(LCD_H_RES, LCD_V_RES, LV_LCD_FLAG_NONE,
-                       Nv3007Panel::sendCommand, Nv3007Panel::sendColour);
+  esp_lv_adapter_config_t config = ESP_LV_ADAPTER_DEFAULT_CONFIG();
+  if (esp_lv_adapter_init(&config) != ESP_OK) {
+    printf("nv3007: no adapter\n");
+    return;
+  }
+
+  // The panel is 156x428 native and mounted across the board; the adapter is
+  // told the surface as it is drawn, and the quarter turn is LVGL's own.
+  esp_lv_adapter_display_config_t display =
+      ESP_LV_ADAPTER_DISPLAY_SPI_WITHOUT_PSRAM_DEFAULT_CONFIG(
+          Nv3007Lcd::getInstance().panel(), Nv3007Lcd::getInstance().io(),
+          LCD_V_RES, LCD_H_RES, ESP_LV_ADAPTER_ROTATE_0);
+  _display = esp_lv_adapter_register_display(&display);
   if (_display == nullptr) {
     printf("nv3007: no display\n");
     return;
   }
   lv_display_set_rotation(_display, LV_DISPLAY_ROTATION_270);
 
-  // Twenty lines per buffer: enough that a page turn is a handful of flushes,
-  // and small enough to leave the rest of RAM to LVGL's pool.
-  const size_t pixels = LCD_V_RES * 20;
-  uint8_t *first = static_cast<uint8_t *>(
-      heap_caps_malloc(pixels * 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
-  uint8_t *second = static_cast<uint8_t *>(
-      heap_caps_malloc(pixels * 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
-  if (first == nullptr || second == nullptr) {
-    printf("nv3007: no draw buffer\n");
+  if (esp_lv_adapter_start() != ESP_OK) {
+    printf("nv3007: adapter did not start\n");
     _display = nullptr;
     return;
   }
-  lv_display_set_buffers(_display, first, second, pixels * 2,
-                         LV_DISPLAY_RENDER_MODE_PARTIAL);
   printf("nv3007: %dx%d ready\n", LCD_H_RES, LCD_V_RES);
 }
+
 
 } // namespace ThetaGP::Drivers::Display

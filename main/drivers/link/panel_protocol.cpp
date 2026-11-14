@@ -28,7 +28,7 @@
 
 #include "build_info.h"
 #include "conf/board.h"
-#include "drivers/display/nv3007_panel.h"
+#include "drivers/display/nv3007_lcd.h"
 #include "ui/menu.h"
 
 #include "Link.pb.h"
@@ -142,7 +142,7 @@ uint32_t PanelProtocol::shape() const {
   shape = shape << 1 | (Link::getInstance().heard() ? 1u : 0u);
   shape = shape << 1 | (Ui::Menu::introDone() ? 1u : 0u);
   shape = shape << 1 |
-          (Display::Nv3007Panel::getInstance().backlightOn() ? 1u : 0u);
+          (Display::Nv3007Lcd::getInstance().backlightOn() ? 1u : 0u);
   return shape;
 }
 
@@ -157,7 +157,7 @@ void PanelProtocol::beat(bool now) {
   message.kind.beat.item = screen.item;
   message.kind.beat.link = Link::getInstance().heard();
   message.kind.beat.backlight =
-      Display::Nv3007Panel::getInstance().backlightOn();
+      Display::Nv3007Lcd::getInstance().backlightOn();
   message.kind.beat.intro_done = Ui::Menu::introDone();
   message.kind.beat.dropped = Link::getInstance().refused();
 

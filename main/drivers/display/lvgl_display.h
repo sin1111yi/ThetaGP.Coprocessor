@@ -19,9 +19,8 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-// LVGL on this board: its clock, the display object the panel is wrapped in,
-// and the two draw buffers the renderer fills. The flush is synchronous
-// because a frame here is a few hundred pixels.
+// LVGL on this board: the adapter owns it -- the task, the clock and the lock
+// -- and hands back the display the panel is wrapped in.
 
 #pragma once
 
@@ -41,8 +40,6 @@ public:
   lv_display_t *handle() const { return _display; }
 
 private:
-  static uint32_t tickMs();
-
   lv_display_t *_display = nullptr;
 };
 

@@ -29,7 +29,9 @@
 #include "lvgl.h"
 
 #include "drivers/display/lvgl_display.h"
-#include "drivers/display/nv3007_panel.h"
+
+#include "esp_lv_adapter.h"
+#include "drivers/display/nv3007_lcd.h"
 #include "drivers/link/link.h"
 #include "drivers/link/panel_protocol.h"
 #include "ui/menu.h"
@@ -37,7 +39,7 @@
 namespace ThetaGP {
 
 void Coprocessor::setup() {
-  Drivers::Display::Nv3007Panel::getInstance().init();
+  // The display brings the panel up and starts the LVGL task the adapter owns.
   Drivers::Display::LvglDisplay::getInstance().init();
   if (Drivers::Display::LvglDisplay::getInstance().handle() == nullptr) {
     return;
@@ -45,21 +47,27 @@ void Coprocessor::setup() {
 
   // A whole black screen goes to the glass before the backlight comes on, so
   // the panel never shows the buffer it powered up with.
-  lv_obj_t *screen = lv_screen_active();
-  lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
-  lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-  lv_refr_now(NULL);
+  if (esp_lv_adapter_lock(-1) == ESP_OK) {
+    lv_obj_t *screen = lv_screen_active();
+    lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+    esp_lv_adapter_unlock();
+  }
+  esp_lv_adapter_refresh_now(Drivers::Display::LvglDisplay::getInstance().handle());
 
   // A moment on black: the panel's own power-up settling is not something to
   // show, so the light comes on once the glass is already dark and held.
   vTaskDelay(pdMS_TO_TICKS(300));
-  Drivers::Display::Nv3007Panel::getInstance().backlight(true);
+  Drivers::Display::Nv3007Lcd::getInstance().backlight(true);
 
-  Ui::Menu::init();
-  // The values the panel was built against, until the protocol fills them.
-  Ui::Menu::setLink(false);
-  Ui::Menu::setProfile(1, 2, "Main");
-  Ui::Menu::setReportHz(8000);
+  if (esp_lv_adapter_lock(-1) == ESP_OK) {
+    Ui::Menu::init();
+    // The values the panel was built against, until the protocol fills them.
+    Ui::Menu::setLink(false);
+    Ui::Menu::setProfile(1, 2, "Main");
+    Ui::Menu::setReportHz(8000);
+    esp_lv_adapter_unlock();
+  }
 }
 
 void Coprocessor::run() {
@@ -93,26 +101,24 @@ void Coprocessor::run() {
     }
 
     if (started) {
-      Drivers::Link::PanelProtocol::getInstance().tick();
-      // The bottom line says whether the board is answering, and changes once
-      // when that answer starts or stops.
-      const bool up = Drivers::Link::Link::getInstance().alive();
-      if (up != linked) {
-        linked = up;
-        Ui::Menu::setLink(up);
+      // The widgets belong to the adapter's task: what is applied here is
+      // applied under its lock.
+      if (esp_lv_adapter_lock(-1) == ESP_OK) {
+        Drivers::Link::PanelProtocol::getInstance().tick();
+        // The menu says whether the board is answering, and changes once when
+        // that answer starts or stops.
+        const bool up = Drivers::Link::Link::getInstance().alive();
+        if (up != linked) {
+          linked = up;
+          Ui::Menu::setLink(up);
+        }
+        esp_lv_adapter_unlock();
       }
     }
 
-    uint32_t wait = lv_timer_handler();
-    // One millisecond of granularity: the scroll moves one pixel at a time, so
-    // a coarse sleep is what makes a slow band look like it stutters.
-    if (wait < 1) {
-      wait = 1;
-    }
-    if (wait > 20) {
-      wait = 20;
-    }
-    vTaskDelay(pdMS_TO_TICKS(wait));
+    // LVGL runs on the adapter's task now; this one keeps the protocol's own
+    // clock, and leaves the screen alone between the calls above.
+    vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
 
