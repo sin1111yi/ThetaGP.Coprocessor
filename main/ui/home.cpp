@@ -66,21 +66,23 @@ using Theme::text;
 #define PARAM_W     214
 // The right column shows four lines and rolls between them the way the link
 // line rolls: a whole line, damped, with the next block waiting below.
-#define PARAM_LINE  18
-#define PARAM_ROWS  6
-#define PARAM_H     (PARAM_LINE * PARAM_ROWS)
-#define PARAM_Y     ((140 - PARAM_H) / 2)
+#define PARAM_ROWS  4   // the lines one card says
+#define PARAM_CARD  26  // the card a line is carried in
+#define PARAM_PITCH 30  // and the air between two of them
+#define PARAM_SLOTS PARAM_ROWS
+#define PARAM_WINDOW (PARAM_PITCH * PARAM_SLOTS)
+#define PARAM_Y     ((140 - PARAM_WINDOW) / 2)
 
 static const char *const ICONS[CARD_COUNT] = {
     LV_SYMBOL_EYE_OPEN, LV_SYMBOL_SETTINGS, LV_SYMBOL_KEYBOARD,
     LV_SYMBOL_DIRECTORY, LV_SYMBOL_FILE};
 
 static const char *const PARAM_KEYS[CARD_COUNT][PARAM_ROWS] = {
-    {"LINK", "RATE", "PROFILE", "PEER", "FIRMWARE", "PANEL"},
-    {"INPUT", "REPORT", "SAVE", "MODE", "SOURCE", "DEFAULT"},
-    {"KEYS", "LAYER", "MODE", "DEFAULT", "SCHEME", "RESET"},
-    {"ID", "COUNT", "NAME", "STATE", "MAPPING", "OPTIONS"},
-    {"BOARD", "MCU", "FW", "PANEL", "BUILD", "PROTOCOL"},
+    {"LINK", "RATE", "PROFILE", "PEER"},
+    {"INPUT", "REPORT", "SAVE", "MODE"},
+    {"KEYS", "LAYER", "MODE", "DEFAULT"},
+    {"ID", "COUNT", "NAME", "STATE"},
+    {"BOARD", "PANEL", "PACKAGE", "PROTOCOL"},
 };
 
 static float s_scroll;
@@ -89,9 +91,11 @@ static float s_anim_diff;
 static lv_obj_t *s_cards[CARD_COUNT];
 static lv_obj_t *s_titles[CARD_COUNT];
 static lv_obj_t *s_icons[CARD_COUNT];
-static lv_obj_t *s_params;       // the window the strip is seen through
-static lv_obj_t *s_paramsCanvas; // the two blocks that roll under it
-static uint8_t *s_paramsPixels;
+static lv_obj_t *s_params;     // the window the cards are seen through
+static lv_obj_t *s_paramsList; // the cards, which slide under it
+static lv_obj_t *s_paramCards[PARAM_SLOTS];
+static lv_obj_t *s_labels[PARAM_SLOTS];
+static lv_obj_t *s_values[PARAM_SLOTS];
 static lv_obj_t *s_thumb;
 
 // ── the parameters column ──
@@ -111,162 +115,100 @@ static void params(uint8_t item, char out[PARAM_ROWS][2][26]) {
     snprintf(out[2][1], 26, "%s %u/%u", m.profile_name, (unsigned)m.profile_id,
              (unsigned)m.profile_count);
     snprintf(out[3][1], 26, "%s", m.peer_id[0] != '\0' ? m.peer_id : "-");
-    snprintf(out[4][1], 26, "%s",
-             m.peer_version[0] != '\0' ? m.peer_version : "-");
-    snprintf(out[5][1], 26, "%s", "428x156");
     break;
   case 1:
     snprintf(out[0][1], 26, "button");
     snprintf(out[1][1], 26, "%u Hz", (unsigned)m.report_hz);
     snprintf(out[2][1], 26, "auto");
     snprintf(out[3][1], 26, "usb");
-    snprintf(out[4][1], 26, "%s", "config");
-    snprintf(out[5][1], 26, "%s", "-");
     break;
   case 2:
     snprintf(out[0][1], 26, "16");
     snprintf(out[1][1], 26, "1");
     snprintf(out[2][1], 26, "hold");
     snprintf(out[3][1], 26, "-");
-    snprintf(out[4][1], 26, "%s", "-");
-    snprintf(out[5][1], 26, "%s", "-");
     break;
   case 3:
     snprintf(out[0][1], 26, "%u", (unsigned)m.profile_id);
     snprintf(out[1][1], 26, "%u", (unsigned)m.profile_count);
     snprintf(out[2][1], 26, "%s", m.profile_name);
     snprintf(out[3][1], 26, "%s", "active");
-    snprintf(out[4][1], 26, "%s", "-");
-    snprintf(out[5][1], 26, "%s", "-");
     break;
   default:
     snprintf(out[0][1], 26, "%s", m.board);
     snprintf(out[1][1], 26, "ESP32-S3");
     snprintf(out[2][1], 26, "%s", BuildInfo::VERSION);
     snprintf(out[3][1], 26, "428x156");
-    snprintf(out[4][1], 26, "%s", "-");
-    snprintf(out[5][1], 26, "%s", "1");
     break;
   }
 }
 
-// Paints two blocks into the strip: `first` at the top and `second` under it,
-// so a roll slides one whole block and no frame is ever blank.
-static void params_paint(const char first[PARAM_ROWS][2][26],
-                         const char second[PARAM_ROWS][2][26]) {
-  if (s_paramsCanvas == NULL) {
-    return;
-  }
-
-  lv_canvas_fill_bg(s_paramsCanvas, colour(Theme::BG), LV_OPA_COVER);
-
-  lv_layer_t layer;
-  lv_canvas_init_layer(s_paramsCanvas, &layer);
-
-  for (uint8_t pass = 0; pass < 2; ++pass) {
-    const char (*rows)[2][26] = pass == 0 ? first : second;
-    for (uint8_t i = 0; i < PARAM_ROWS; ++i) {
-      const lv_coord_t top = (lv_coord_t)(pass * PARAM_H + i * PARAM_LINE);
-
-      // The hairline above each line, as the column has always carried.
-      lv_draw_rect_dsc_t rule;
-      lv_draw_rect_dsc_init(&rule);
-      rule.bg_color = colour(Theme::BORDER);
-      rule.bg_opa = LV_OPA_COVER;
-      lv_area_t ruleArea = {0, top, (lv_coord_t)(PARAM_W - 1), top};
-      lv_draw_rect(&layer, &rule, &ruleArea);
-
-      lv_draw_label_dsc_t label;
-      lv_draw_label_dsc_init(&label);
-      label.font = &lv_font_montserrat_12;
-      label.color = colour(Theme::MUTED);
-      label.text = rows[i][0];
-      label.text_length = (uint32_t)std::strlen(rows[i][0]);
-      label.align = LV_TEXT_ALIGN_LEFT;
-      lv_area_t labelArea = {0, (lv_coord_t)(top + 2),
-                             (lv_coord_t)(PARAM_W - 1), (lv_coord_t)(top + 15)};
-      lv_draw_label(&layer, &label, &labelArea);
-
-      lv_draw_label_dsc_t value;
-      lv_draw_label_dsc_init(&value);
-      value.font = &lv_font_montserrat_14;
-      value.color = colour(Theme::TEXT);
-      value.text = rows[i][1];
-      value.text_length = (uint32_t)std::strlen(rows[i][1]);
-      value.align = LV_TEXT_ALIGN_RIGHT;
-      lv_area_t valueArea = {0, (lv_coord_t)(top + 1),
-                             (lv_coord_t)(PARAM_W - 1), (lv_coord_t)(top + 17)};
-      lv_draw_label(&layer, &value, &valueArea);
-    }
-  }
-
-  lv_canvas_finish_layer(s_paramsCanvas, &layer);
-}
-
-// Puts the strip at rest on the card the mark is on.
-static void params_show(void) {
-  char block[PARAM_ROWS][2][26] = {};
-  params(selected(), block);
-  params_paint(block, block);
-  if (s_paramsCanvas != NULL) {
-    lv_obj_set_y(s_paramsCanvas, 0);
-  }
-}
-
-static void params_roll_done(lv_anim_t *anim) {
-  (void)anim;
-  params_show();
-}
-
-// Rolls the strip one whole block, in the direction the mark moved.
-// A damped turn: the block starts slowly, runs through the middle and is
+// A damped turn: the column starts slowly, runs through the middle and is
 // settled well before the move is over.
 static int32_t damped_path(const lv_anim_t *anim) {
   const float t = (float)anim->act_time / (float)anim->duration;
   const float settle =
-      1.0f -
-      std::exp(-9.0f * t) * (std::cos(11.0f * t) + 0.82f * std::sin(11.0f * t));
+      1.0f - std::exp(-9.0f * t) *
+                 (std::cos(11.0f * t) + 0.82f * std::sin(11.0f * t));
   return anim->start_value +
          (int32_t)((float)(anim->end_value - anim->start_value) * settle);
 }
 
-static void params_roll(int step) {
-  if (s_paramsCanvas == NULL) {
+// The column is four cards, each carrying one line of the card the mark is on.
+// They are widgets, not a bitmap: the screen lays the text out, and a move
+// slides the column by one card.
+static void cards_fill(uint8_t item) {
+  char rows[PARAM_ROWS][2][26] = {};
+  params(item, rows);
+  for (int i = 0; i < PARAM_SLOTS; ++i) {
+    if (s_labels[i] == NULL) {
+      continue;
+    }
+    lv_label_set_text(s_labels[i], rows[i][0]);
+    lv_label_set_text(s_values[i], rows[i][1]);
+  }
+}
+
+// Puts the column at rest, on the card the mark is on.
+static void params_show(void) {
+  cards_fill(selected());
+  if (s_paramsList != NULL) {
+    lv_obj_set_y(s_paramsList, 0);
+  }
+}
+
+static void params_slide_done(lv_anim_t *anim) {
+  (void)anim;
+  if (s_paramsList != NULL) {
+    lv_obj_set_y(s_paramsList, 0);
+  }
+}
+
+// Slides the column one card, in the direction the mark moved: the card that
+// arrives comes from the side the move came from.
+static void params_enter(int step) {
+  // The column is filled for the card the mark is going to, not the one it is
+  // leaving: the slide is the arrival.
+  const int target = ((selected() + step) % CARD_COUNT + CARD_COUNT) % CARD_COUNT;
+  cards_fill((uint8_t)target);
+  if (s_paramsList == NULL) {
     return;
   }
 
-  const int from = selected();
-  const int to = ((from + step) % CARD_COUNT + CARD_COUNT) % CARD_COUNT;
+  const int from = step > 0 ? PARAM_PITCH : -PARAM_PITCH;
+  lv_anim_delete(s_paramsList, NULL);
+  lv_obj_set_y(s_paramsList, (lv_coord_t)from);
 
-  char leaving[PARAM_ROWS][2][26] = {};
-  char arriving[PARAM_ROWS][2][26] = {};
-  params((uint8_t)from, leaving);
-  params((uint8_t)to, arriving);
-
-  int fromY = 0;
-  int toY = 0;
-  if (step > 0) {
-    params_paint(leaving, arriving);
-    fromY = 0;
-    toY = -PARAM_H;
-  } else {
-    params_paint(arriving, leaving);
-    fromY = -PARAM_H;
-    toY = 0;
-  }
-
-  lv_obj_set_y(s_paramsCanvas, fromY);
-  lv_anim_delete(s_paramsCanvas, NULL);
   lv_anim_t anim;
   lv_anim_init(&anim);
-  lv_anim_set_var(&anim, s_paramsCanvas);
-  lv_anim_set_values(&anim, fromY, toY);
+  lv_anim_set_var(&anim, s_paramsList);
+  lv_anim_set_values(&anim, from, 0);
   lv_anim_set_exec_cb(&anim, [](void *var, int32_t value) {
     lv_obj_set_y((lv_obj_t *)var, (lv_coord_t)value);
   });
   lv_anim_set_path_cb(&anim, damped_path);
   lv_anim_set_duration(&anim, 480);
-  lv_anim_set_completed_cb(&anim, params_roll_done);
+  lv_anim_set_completed_cb(&anim, params_slide_done);
   lv_anim_start(&anim);
 }
 
@@ -353,28 +295,51 @@ void build(lv_obj_t *root) {
     s_cards[i] = card;
   }
 
-  // The column's window: four lines, with the strip that carries them behind.
+  // The column: a window with the cards that slide under it. A card is a
+  // transparent panel with a hairline, so the page shows through it.
   s_params = lv_obj_create(root);
   lv_obj_remove_style_all(s_params);
   lv_obj_set_pos(s_params, PARAM_X, PARAM_Y);
-  lv_obj_set_size(s_params, PARAM_W, PARAM_H);
+  lv_obj_set_size(s_params, PARAM_W, PARAM_WINDOW);
   lv_obj_set_style_bg_opa(s_params, LV_OPA_TRANSP, 0);
   lv_obj_remove_flag(s_params, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_remove_flag(s_params, LV_OBJ_FLAG_SCROLLABLE);
 
-  // The strip is a menu-sized block, not a widget's: its pixels come from the
-  // system heap, because LVGL's own pool is 64 kB and the screen's objects
-  // live there.
-  s_paramsPixels = (uint8_t *)std::malloc((size_t)PARAM_W * PARAM_H * 2 * 2);
-  if (s_paramsPixels != NULL) {
-    s_paramsCanvas = lv_canvas_create(s_params);
-    lv_obj_remove_style_all(s_paramsCanvas);
-    lv_canvas_set_buffer(s_paramsCanvas, s_paramsPixels, PARAM_W, PARAM_H * 2,
-                         LV_COLOR_FORMAT_RGB565);
-    lv_obj_set_pos(s_paramsCanvas, 0, 0);
-    lv_obj_remove_flag(s_paramsCanvas, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(s_paramsCanvas, LV_OBJ_FLAG_SCROLLABLE);
+  s_paramsList = lv_obj_create(s_params);
+  lv_obj_remove_style_all(s_paramsList);
+  lv_obj_set_pos(s_paramsList, 0, 0);
+  lv_obj_set_size(s_paramsList, PARAM_W, PARAM_WINDOW);
+  lv_obj_set_style_bg_opa(s_paramsList, LV_OPA_TRANSP, 0);
+  lv_obj_remove_flag(s_paramsList, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(s_paramsList, LV_OBJ_FLAG_SCROLLABLE);
+
+  for (int i = 0; i < PARAM_SLOTS; ++i) {
+    lv_obj_t *card = lv_obj_create(s_paramsList);
+    lv_obj_remove_style_all(card);
+    lv_obj_set_pos(card, 0, (lv_coord_t)(i * PARAM_PITCH));
+    lv_obj_set_size(card, PARAM_W, PARAM_CARD);
+    lv_obj_set_style_radius(card, 7, 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(card, colour(Theme::BORDER), 0);
+    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_labels[i] = text(card, "", &lv_font_montserrat_12, Theme::MUTED, 12, 4,
+                       120);
+    lv_obj_set_style_text_letter_space(s_labels[i], 1, 0);
+
+    s_values[i] = lv_label_create(card);
+    lv_obj_set_style_text_font(s_values[i], &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_values[i], colour(Theme::TEXT), 0);
+    lv_obj_set_width(s_values[i], PARAM_W - 24);
+    lv_obj_set_style_text_align(s_values[i], LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_long_mode(s_values[i], LV_LABEL_LONG_CLIP);
+    lv_obj_align(s_values[i], LV_ALIGN_RIGHT_MID, -12, 0);
+
+    s_paramCards[i] = card;
   }
+
   params_show();
 
   lv_obj_t *track = lv_obj_create(root);
@@ -396,16 +361,15 @@ void build(lv_obj_t *root) {
 
 void free(void) {
   lv_anim_delete(&s_scroll, NULL);
-  if (s_paramsCanvas != NULL) {
-    lv_obj_delete(s_paramsCanvas);
-    s_paramsCanvas = NULL;
-  }
-  if (s_paramsPixels != NULL) {
-    std::free(s_paramsPixels);
-    s_paramsPixels = NULL;
-  }
   s_params = NULL;
+  s_paramsList = NULL;
+  for (int i = 0; i < PARAM_SLOTS; ++i) {
+    s_paramCards[i] = NULL;
+    s_labels[i] = NULL;
+    s_values[i] = NULL;
+  }
 }
+
 
 // An underdamped spring: the column and the thumb reach the next place a
 // little early, then settle back into it instead of stopping dead.
@@ -432,7 +396,7 @@ static void home_anim_done(lv_anim_t *anim) {
 }
 
 void step(int step) {
-  params_roll(step);
+  params_enter(step);
 
   lv_anim_delete(&s_scroll, NULL);
   s_anim_from = s_scroll;
