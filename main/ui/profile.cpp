@@ -50,7 +50,7 @@ using Theme::text;
 #define RAIL_H      116
 #define THUMB_H     20
 #define RIGHT_X     200
-#define RIGHT_W     214
+#define RIGHT_W     215
 #define LINE_H      18
 #define RIGHT_ROWS  4
 #define RIGHT_CARD  26
@@ -263,7 +263,7 @@ static void paint_right(const char lines[RIGHT_ROWS][2][40], int focusRow) {
     label.text = lines[i][0];
     label.text_length = (uint32_t)std::strlen(lines[i][0]);
     lv_area_t labelArea = {4, (lv_coord_t)(top + 5),
-                           (lv_coord_t)(RIGHT_W - 7),
+                           (lv_coord_t)(RIGHT_W - 6),
                            (lv_coord_t)(top + 18)};
     lv_draw_label(&layer, &label, &labelArea);
 
