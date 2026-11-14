@@ -31,6 +31,8 @@
 #include "drivers/display/lvgl_display.h"
 
 #include "esp_lv_adapter.h"
+#include "esp_system.h"
+#include "esp_timer.h"
 #include "drivers/display/nv3007_lcd.h"
 #include "drivers/link/link.h"
 #include "drivers/link/panel_protocol.h"
@@ -42,7 +44,11 @@ void Coprocessor::setup() {
   // The display brings the panel up and starts the LVGL task the adapter owns.
   Drivers::Display::LvglDisplay::getInstance().init();
   if (Drivers::Display::LvglDisplay::getInstance().handle() == nullptr) {
-    return;
+    // A panel that did not come up is not something to idle behind: the
+    // reason is already on the console, and the board tries again.
+    printf("coprocessor: no display, restarting\n");
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    esp_restart();
   }
 
   // A whole black screen goes to the glass before the backlight comes on, so
@@ -74,6 +80,20 @@ void Coprocessor::run() {
   if (Drivers::Display::LvglDisplay::getInstance().handle() == nullptr) {
     return;
   }
+
+  // The protocol's own timer: a hardware one, so the cadence does not depend
+  // on how coarse the kernel's tick is.
+  static TaskHandle_t loop = xTaskGetCurrentTaskHandle();
+  esp_timer_handle_t tick = nullptr;
+  esp_timer_create_args_t args = {};
+  args.callback = [](void *) { xTaskNotifyGive(loop); };
+  args.name = "proto";
+  args.dispatch_method = ESP_TIMER_TASK;
+  args.skip_unhandled_events = true;
+  // There is no second clock to fall back on: the loop below waits on this
+  // timer alone, so a timer that cannot be had stops the board here.
+  ESP_ERROR_CHECK(esp_timer_create(&args, &tick));
+  ESP_ERROR_CHECK(esp_timer_start_periodic(tick, 10 * 1000));
 
   // The panel says whether the main board is answering. The link is read here,
   // on the task that owns the widgets, and only a change reaches the menu.
@@ -117,8 +137,8 @@ void Coprocessor::run() {
     }
 
     // LVGL runs on the adapter's task now; this one keeps the protocol's own
-    // clock, and leaves the screen alone between the calls above.
-    vTaskDelay(pdMS_TO_TICKS(10));
+    // clock on a hardware timer, whose 10 ms does not drift with the tick.
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
   }
 }
 
