@@ -23,9 +23,8 @@
 
 #include <cmath>
 #include <cstdio>
-#include <cstdlib>
-#include <cstring>
 
+#include "ui/column.h"
 #include "ui/menu.h"
 #include "ui/theme.h"
 
@@ -52,11 +51,8 @@ using Theme::text;
 #define RIGHT_X     200
 #define RIGHT_W     215
 #define LINE_H      18
-#define RIGHT_ROWS  4
-#define RIGHT_CARD  26
-#define RIGHT_PITCH 30
-#define RIGHT_Y     ((140 - RIGHT_PITCH * RIGHT_ROWS) / 2)
-#define RIGHT_H     (RIGHT_PITCH * RIGHT_ROWS)
+#define RIGHT_ROWS  Cards::ROWS
+#define RIGHT_Y     ((140 - Cards::HEIGHT) / 2)
 #define MOVE_MS     480
 
 // The window a setting is edited in: smaller than the screen, over the middle
@@ -108,10 +104,7 @@ static int s_setting;
 static int s_valueRow;
 
 static lv_obj_t *s_root;
-static lv_obj_t *s_right; // the window the right column is seen through
-static lv_obj_t *s_rightCanvas;
-static uint8_t *s_rightPixels;
-static int s_rightY;
+static Cards::Column s_right;
 
 static lv_obj_t *s_popup; // the window a setting is edited in
 static lv_obj_t *s_popupTitle;
@@ -119,7 +112,7 @@ static lv_obj_t *s_popupRow[RIGHT_ROWS];
 static lv_obj_t *s_popupName[RIGHT_ROWS];
 static lv_obj_t *s_popupMark[RIGHT_ROWS];
 
-static void paint_right(const char lines[RIGHT_ROWS][2][40], int focusRow);
+static void popupOpen(void);
 static void popupShow(void);
 
 // ── what the level carries ──
@@ -228,107 +221,60 @@ static void listBlock(char out[RIGHT_ROWS][2][40], bool values, int top) {
 
 // ── the right column ──
 
-static void paint_right(const char lines[RIGHT_ROWS][2][40], int focusRow) {
-  if (s_rightCanvas == NULL) {
-    return;
+// The four lines the column carries, for the state the mark is in.
+static void rightBlock(char out[RIGHT_ROWS][2][40]) {
+  if (s_focus == kSettings) {
+    listBlock(out, false, s_offset);
+  } else if (s_focus == kValue) {
+    listBlock(out, true, s_offset);
+  } else {
+    menuBlock(out, s_offset);
   }
-
-  lv_canvas_fill_bg(s_rightCanvas, colour(Theme::BG), LV_OPA_COVER);
-  lv_layer_t layer;
-  lv_canvas_init_layer(s_rightCanvas, &layer);
-
-  for (int i = 0; i < RIGHT_ROWS; ++i) {
-    if (lines[i][0][0] == '\0') {
-      continue;
-    }
-    const bool on = i == focusRow;
-    const lv_coord_t top = (lv_coord_t)(i * RIGHT_PITCH);
-
-    // A card with no fill and a hairline: the page shows through it.
-    lv_draw_rect_dsc_t card;
-    lv_draw_rect_dsc_init(&card);
-    card.bg_opa = LV_OPA_TRANSP;
-    card.border_color = colour(on ? Theme::ACCENT : Theme::BORDER);
-    card.border_width = 1;
-    card.border_opa = LV_OPA_COVER;
-    card.radius = 7;
-    lv_area_t cardArea = {0, top, (lv_coord_t)(RIGHT_W - 1),
-                          (lv_coord_t)(top + RIGHT_CARD - 1)};
-    lv_draw_rect(&layer, &card, &cardArea);
-
-    lv_draw_label_dsc_t label;
-    lv_draw_label_dsc_init(&label);
-    label.font = &lv_font_montserrat_12;
-    label.color = colour(on ? Theme::ACCENT : Theme::MUTED);
-    label.text = lines[i][0];
-    label.text_length = (uint32_t)std::strlen(lines[i][0]);
-    lv_area_t labelArea = {4, (lv_coord_t)(top + 5),
-                           (lv_coord_t)(RIGHT_W - 6),
-                           (lv_coord_t)(top + 18)};
-    lv_draw_label(&layer, &label, &labelArea);
-
-    lv_draw_label_dsc_t value;
-    lv_draw_label_dsc_init(&value);
-    value.font = &lv_font_montserrat_14;
-    value.color = colour(on ? Theme::ACCENT : Theme::TEXT);
-    value.text = lines[i][1];
-    value.text_length = (uint32_t)std::strlen(lines[i][1]);
-    value.align = LV_TEXT_ALIGN_RIGHT;
-    lv_area_t valueArea = {0, (lv_coord_t)(top + 1), (lv_coord_t)(RIGHT_W - 1),
-                           (lv_coord_t)(top + 17)};
-    lv_draw_label(&layer, &value, &valueArea);
-  }
-
-  lv_canvas_finish_layer(s_rightCanvas, &layer);
 }
 
-// What the right column says, for the state the mark is in.
-static void rightShow(void) {
-  char lines[RIGHT_ROWS][2][40] = {};
-  int focus = -1;
+// Which of those lines the mark is on; -1 while it is on the names.
+static int rightMark(void) {
   switch (s_focus) {
   case kMenu:
-    menuBlock(lines, s_offset);
-    focus = s_row - s_offset;
-    break;
+    return s_row - s_offset;
   case kSettings:
-    listBlock(lines, false, s_offset);
-    focus = s_setting - s_offset;
-    break;
+    return s_setting - s_offset;
   case kValue:
-    listBlock(lines, true, s_offset);
-    focus = s_valueRow - s_offset;
-    break;
-  default: {
-    // The names have the focus: the column says what the card under it is.
-    snprintf(lines[0][0], 40, "NAME");
-    snprintf(lines[1][0], 40, "ACTIVE");
-    snprintf(lines[2][0], 40, "MAPPING CONFIG");
-    snprintf(lines[3][0], 40, "OPTIONS");
-    if (isPlus((uint8_t)s_name)) {
-      for (int i = 0; i < RIGHT_ROWS; ++i) {
-        snprintf(lines[i][1], 40, "none");
-      }
-      break;
+    return s_valueRow - s_offset;
+  default:
+    return -1;
+  }
+}
+
+// Fills the column for the window it is showing, the line the mark is on
+// drawn as the live one.
+static void rightFill(void) {
+  char block[RIGHT_ROWS][2][40] = {};
+  Cards::Line lines[RIGHT_ROWS] = {};
+  rightBlock(block);
+
+  for (int i = 0; i < RIGHT_ROWS; ++i) {
+    if (block[i][1][0] == '\0') {
+      continue;
     }
-    char name[26] = {};
-    profileName(name, sizeof name);
-    snprintf(lines[0][1], 40, "%s", name);
-    snprintf(lines[1][1], 40, "%s", isActive((uint8_t)s_name) ? "yes" : "no");
-    // The factory profile carries the build's own mapping and settings: they
-    // are read, and there is nothing behind them to change.
-    snprintf(lines[2][1], 40, "%s",
-             isFactory((uint8_t)s_name) ? "default" : ">");
-    snprintf(lines[3][1], 40, "%s",
-             isFactory((uint8_t)s_name) ? "default" : ">");
-    break;
+    lines[i].label = block[i][0];
+    lines[i].value = block[i][1];
   }
-  }
-  paint_right(lines, focus);
-  s_rightY = 0;
-  if (s_rightCanvas != NULL) {
-    lv_obj_set_y(s_rightCanvas, 0);
-  }
+
+  s_right.fill(lines, RIGHT_ROWS, 0);
+  s_right.focus(rightMark());
+}
+
+// Puts the column at rest on the window the offset names.
+static void rightShow(void) {
+  rightFill();
+  s_right.rest();
+}
+
+// Slides the column one card, in the direction the mark moved.
+static void rightScroll(int step) {
+  rightFill();
+  s_right.slide(step);
 }
 
 // ── the cards ──
@@ -416,7 +362,6 @@ void build(lv_obj_t *root) {
   }
   s_scroll = (float)s_name;
   s_offset = 0;
-  s_rightY = 0;
 
   for (int i = 0; i < s_nameCount; ++i) {
     lv_obj_t *card = surface(root, 0, 0, CARD_W, CARD_H);
@@ -446,28 +391,20 @@ void build(lv_obj_t *root) {
   lv_obj_set_style_radius(s_thumb, 1, 0);
   fill(s_thumb, 0xFDBA74);
 
-  s_right = lv_obj_create(root);
-  lv_obj_remove_style_all(s_right);
-  lv_obj_set_pos(s_right, RIGHT_X, RIGHT_Y);
-  lv_obj_set_size(s_right, RIGHT_W, RIGHT_H);
-  lv_obj_set_style_bg_opa(s_right, LV_OPA_TRANSP, 0);
-  lv_obj_remove_flag(s_right, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(s_right, LV_OBJ_FLAG_SCROLLABLE);
-
-  s_rightPixels =
-      (uint8_t *)std::malloc((size_t)(RIGHT_W - 4) * RIGHT_H * 2);
-  if (s_rightPixels != NULL) {
-    s_rightCanvas = lv_canvas_create(s_right);
-    lv_obj_remove_style_all(s_rightCanvas);
-    lv_canvas_set_buffer(s_rightCanvas, s_rightPixels, RIGHT_W - 4, RIGHT_H,
-                         LV_COLOR_FORMAT_RGB565);
-    lv_obj_set_pos(s_rightCanvas, 0, 0);
-    lv_obj_remove_flag(s_rightCanvas, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(s_rightCanvas, LV_OBJ_FLAG_SCROLLABLE);
-  }
-
+  // The column of cards the profile's menu is read in.
+  s_right.build(root, RIGHT_X, RIGHT_Y, RIGHT_W);
   cardLayout();
-  rightShow();
+
+  // A page rebuilt under an open window opens it again: the mark keeps the
+  // state it was left in.
+  if (s_focus == kValue) {
+    s_focus = kSettings;
+  }
+  if (s_focus == kSettings) {
+    popupOpen();
+  } else {
+    rightShow();
+  }
 }
 
 void free(void) {
@@ -476,16 +413,8 @@ void free(void) {
     lv_obj_delete(s_popup);
     s_popup = NULL;
   }
-  if (s_rightCanvas != NULL) {
-    lv_obj_delete(s_rightCanvas);
-    s_rightCanvas = NULL;
-  }
-  if (s_rightPixels != NULL) {
-    std::free(s_rightPixels);
-    s_rightPixels = NULL;
-  }
+  s_right.drop();
   s_root = NULL;
-  s_right = NULL;
   s_thumb = NULL;
 }
 
@@ -526,6 +455,7 @@ void move(int step) {
     if (row >= MENU_ROWS) {
       row = MENU_ROWS - 1;
     }
+    const int was = s_offset;
     s_row = row;
     // The four-line window follows the mark once it would leave it.
     if (s_row < s_offset) {
@@ -534,7 +464,11 @@ void move(int step) {
     if (s_row >= s_offset + RIGHT_ROWS) {
       s_offset = s_row - RIGHT_ROWS + 1;
     }
-    rightShow();
+    if (s_offset != was) {
+      rightScroll(step);
+    } else {
+      rightShow();
+    }
     break;
   }
   case kSettings: {
@@ -661,6 +595,9 @@ static void popupOpen(void) {
   s_setting = 0;
   s_offset = 0;
   s_focus = kSettings;
+  // The window carries the list while it is open: the column gives it the
+  // page rather than being cut in half by it.
+  s_right.shown(false);
   popupShow();
 }
 
@@ -669,6 +606,7 @@ static void popupClose(void) {
     lv_obj_delete(s_popup);
     s_popup = NULL;
   }
+  s_right.shown(true);
 }
 
 // ── the mark ──
@@ -729,6 +667,7 @@ bool leave(void) {
     return true;
   case kMenu:
     s_focus = kNames;
+    s_offset = 0;
     rightShow();
     return true;
   default:

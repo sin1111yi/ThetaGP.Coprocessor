@@ -27,6 +27,7 @@
 #include <cstring>
 
 #include "build_info.h"
+#include "ui/column.h"
 #include "ui/menu.h"
 #include "ui/theme.h"
 
@@ -63,15 +64,11 @@ using Theme::text;
 // The parameters fill the right column; the link line sits under them, its
 // right edge on the same mark as their values.
 #define PARAM_X     200
-#define PARAM_W     214
+#define PARAM_W     215
 // The right column shows four lines and rolls between them the way the link
 // line rolls: a whole line, damped, with the next block waiting below.
-#define PARAM_ROWS  4   // the lines one card says
-#define PARAM_CARD  26  // the card a line is carried in
-#define PARAM_PITCH 30  // and the air between two of them
-#define PARAM_SLOTS PARAM_ROWS
-#define PARAM_WINDOW (PARAM_PITCH * PARAM_SLOTS)
-#define PARAM_Y     ((140 - PARAM_WINDOW) / 2)
+#define PARAM_ROWS  Cards::ROWS // the lines one card says
+#define PARAM_Y     ((140 - Cards::HEIGHT) / 2)
 
 static const char *const ICONS[CARD_COUNT] = {
     LV_SYMBOL_EYE_OPEN, LV_SYMBOL_SETTINGS, LV_SYMBOL_KEYBOARD,
@@ -91,11 +88,7 @@ static float s_anim_diff;
 static lv_obj_t *s_cards[CARD_COUNT];
 static lv_obj_t *s_titles[CARD_COUNT];
 static lv_obj_t *s_icons[CARD_COUNT];
-static lv_obj_t *s_params;     // the window the cards are seen through
-static lv_obj_t *s_paramsList; // the cards, which slide under it
-static lv_obj_t *s_paramCards[PARAM_SLOTS];
-static lv_obj_t *s_labels[PARAM_SLOTS];
-static lv_obj_t *s_values[PARAM_SLOTS];
+static Cards::Column s_column;
 static lv_obj_t *s_thumb;
 
 // ── the parameters column ──
@@ -143,73 +136,29 @@ static void params(uint8_t item, char out[PARAM_ROWS][2][26]) {
   }
 }
 
-// A damped turn: the column starts slowly, runs through the middle and is
-// settled well before the move is over.
-static int32_t damped_path(const lv_anim_t *anim) {
-  const float t = (float)anim->act_time / (float)anim->duration;
-  const float settle =
-      1.0f - std::exp(-9.0f * t) *
-                 (std::cos(11.0f * t) + 0.82f * std::sin(11.0f * t));
-  return anim->start_value +
-         (int32_t)((float)(anim->end_value - anim->start_value) * settle);
-}
-
-// The column is four cards, each carrying one line of the card the mark is on.
-// They are widgets, not a bitmap: the screen lays the text out, and a move
-// slides the column by one card.
+// One card says four things: the column is filled from the card under the mark.
 static void cards_fill(uint8_t item) {
   char rows[PARAM_ROWS][2][26] = {};
   params(item, rows);
-  for (int i = 0; i < PARAM_SLOTS; ++i) {
-    if (s_labels[i] == NULL) {
-      continue;
-    }
-    lv_label_set_text(s_labels[i], rows[i][0]);
-    lv_label_set_text(s_values[i], rows[i][1]);
+  Cards::Line lines[PARAM_ROWS] = {};
+  for (int i = 0; i < PARAM_ROWS; ++i) {
+    lines[i].label = rows[i][0];
+    lines[i].value = rows[i][1];
   }
+  s_column.fill(lines, PARAM_ROWS, 0);
 }
 
-// Puts the column at rest, on the card the mark is on.
+// Puts the column at rest on the card the mark is on.
 static void params_show(void) {
   cards_fill(selected());
-  if (s_paramsList != NULL) {
-    lv_obj_set_y(s_paramsList, 0);
-  }
+  s_column.rest();
 }
 
-static void params_slide_done(lv_anim_t *anim) {
-  (void)anim;
-  if (s_paramsList != NULL) {
-    lv_obj_set_y(s_paramsList, 0);
-  }
-}
-
-// Slides the column one card, in the direction the mark moved: the card that
-// arrives comes from the side the move came from.
+// Slides the column one card, in the direction the mark moved.
 static void params_enter(int step) {
-  // The column is filled for the card the mark is going to, not the one it is
-  // leaving: the slide is the arrival.
   const int target = ((selected() + step) % CARD_COUNT + CARD_COUNT) % CARD_COUNT;
   cards_fill((uint8_t)target);
-  if (s_paramsList == NULL) {
-    return;
-  }
-
-  const int from = step > 0 ? PARAM_PITCH : -PARAM_PITCH;
-  lv_anim_delete(s_paramsList, NULL);
-  lv_obj_set_y(s_paramsList, (lv_coord_t)from);
-
-  lv_anim_t anim;
-  lv_anim_init(&anim);
-  lv_anim_set_var(&anim, s_paramsList);
-  lv_anim_set_values(&anim, from, 0);
-  lv_anim_set_exec_cb(&anim, [](void *var, int32_t value) {
-    lv_obj_set_y((lv_obj_t *)var, (lv_coord_t)value);
-  });
-  lv_anim_set_path_cb(&anim, damped_path);
-  lv_anim_set_duration(&anim, 480);
-  lv_anim_set_completed_cb(&anim, params_slide_done);
-  lv_anim_start(&anim);
+  s_column.slide(step);
 }
 
 // The shortest distance from item i to the mark, so a step over either end
@@ -295,51 +244,8 @@ void build(lv_obj_t *root) {
     s_cards[i] = card;
   }
 
-  // The column: a window with the cards that slide under it. A card is a
-  // transparent panel with a hairline, so the page shows through it.
-  s_params = lv_obj_create(root);
-  lv_obj_remove_style_all(s_params);
-  lv_obj_set_pos(s_params, PARAM_X, PARAM_Y);
-  lv_obj_set_size(s_params, PARAM_W, PARAM_WINDOW);
-  lv_obj_set_style_bg_opa(s_params, LV_OPA_TRANSP, 0);
-  lv_obj_remove_flag(s_params, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(s_params, LV_OBJ_FLAG_SCROLLABLE);
-
-  s_paramsList = lv_obj_create(s_params);
-  lv_obj_remove_style_all(s_paramsList);
-  lv_obj_set_pos(s_paramsList, 0, 0);
-  lv_obj_set_size(s_paramsList, PARAM_W, PARAM_WINDOW);
-  lv_obj_set_style_bg_opa(s_paramsList, LV_OPA_TRANSP, 0);
-  lv_obj_remove_flag(s_paramsList, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(s_paramsList, LV_OBJ_FLAG_SCROLLABLE);
-
-  for (int i = 0; i < PARAM_SLOTS; ++i) {
-    lv_obj_t *card = lv_obj_create(s_paramsList);
-    lv_obj_remove_style_all(card);
-    lv_obj_set_pos(card, 0, (lv_coord_t)(i * PARAM_PITCH));
-    lv_obj_set_size(card, PARAM_W, PARAM_CARD);
-    lv_obj_set_style_radius(card, 7, 0);
-    lv_obj_set_style_bg_opa(card, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_color(card, colour(Theme::BORDER), 0);
-    lv_obj_set_style_border_width(card, 1, 0);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-
-    s_labels[i] = text(card, "", &lv_font_montserrat_12, Theme::MUTED, 3, 4,
-                       140);
-    lv_obj_set_style_text_letter_space(s_labels[i], 1, 0);
-
-    s_values[i] = lv_label_create(card);
-    lv_obj_set_style_text_font(s_values[i], &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_values[i], colour(Theme::TEXT), 0);
-    lv_obj_set_width(s_values[i], PARAM_W - 6);
-    lv_obj_set_style_text_align(s_values[i], LV_TEXT_ALIGN_RIGHT, 0);
-    lv_label_set_long_mode(s_values[i], LV_LABEL_LONG_CLIP);
-    lv_obj_align(s_values[i], LV_ALIGN_RIGHT_MID, -3, 0);
-
-    s_paramCards[i] = card;
-  }
-
+  // The column of cards the card under the mark says its lines in.
+  s_column.build(root, PARAM_X, PARAM_Y, PARAM_W);
   params_show();
 
   lv_obj_t *track = lv_obj_create(root);
@@ -361,13 +267,7 @@ void build(lv_obj_t *root) {
 
 void free(void) {
   lv_anim_delete(&s_scroll, NULL);
-  s_params = NULL;
-  s_paramsList = NULL;
-  for (int i = 0; i < PARAM_SLOTS; ++i) {
-    s_paramCards[i] = NULL;
-    s_labels[i] = NULL;
-    s_values[i] = NULL;
-  }
+  s_column.drop();
 }
 
 
