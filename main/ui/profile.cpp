@@ -50,19 +50,22 @@ using Theme::text;
 #define THUMB_H     20
 #define RIGHT_X     200
 #define RIGHT_W     215
-#define LINE_H      18
 #define RIGHT_ROWS  Cards::ROWS
 #define RIGHT_Y     ((140 - Cards::HEIGHT) / 2)
 #define MOVE_MS     480
 
-// The window a setting is edited in: it stands in the room the name cards
-// leave, so the profile's menu stays in view beside it.
-#define POP_W       194
-#define POP_H       104
-#define POP_X       2
-#define POP_Y       ((140 - POP_H) / 2)
-#define POP_PAD     10
-#define POP_VALUE   46
+// The window a setting is edited in: it covers the page, ten pixels in from
+// either side and six from the top and the bottom. The page under it is
+// cleared to its own background, so nothing of the level shows at the edges.
+#define POP_W       (420 - 2 * 10)
+#define POP_H       (140 - 2 * 6)
+#define POP_X       10
+#define POP_Y       6
+#define POP_PAD     12
+#define POP_NAME    26
+#define POP_ROW     32
+#define POP_STEP    22
+#define POP_VALUE   100
 
 enum Focus : uint8_t { kNames, kMenu, kSettings, kValue };
 
@@ -109,10 +112,12 @@ static int s_valueRow;
 static lv_obj_t *s_root;
 static Cards::Column s_right;
 
+static lv_obj_t *s_scrim; // the page, cleared under the window
 static lv_obj_t *s_popup; // the window a setting is edited in
 static lv_obj_t *s_popupTitle;
 static lv_obj_t *s_popupRow[RIGHT_ROWS];
 static lv_obj_t *s_popupName[RIGHT_ROWS];
+static lv_obj_t *s_popupMark[RIGHT_ROWS];
 
 static void popupOpen(void);
 static void popupShow(void);
@@ -211,7 +216,7 @@ static void listBlock(char out[RIGHT_ROWS][2][40], bool values, int top) {
       }
     } else {
       if (row < 4) {
-        snprintf(out[i][0], 40, "%s", VALUES[s_setting][row]);
+        snprintf(out[i][1], 40, "%s", VALUES[s_setting][row]);
       }
     }
   }
@@ -413,6 +418,10 @@ void free(void) {
     lv_obj_delete(s_popup);
     s_popup = NULL;
   }
+  if (s_scrim != NULL) {
+    lv_obj_delete(s_scrim);
+    s_scrim = NULL;
+  }
   s_right.drop();
   s_root = NULL;
   s_thumb = NULL;
@@ -522,21 +531,33 @@ static void popupShow(void) {
   listBlock(lines, values, 0);
 
   for (int i = 0; i < RIGHT_ROWS; ++i) {
-    const bool used = lines[i][0][0] != '\0';
+    const bool used = lines[i][1][0] != '\0';
     const int mark = values ? s_valueRow : s_setting;
     const bool on = used && i == mark;
 
-    // The name sits at the left of the window and the value it holds at the
-    // right; a list of values has nothing on the right, so the name carries
-    // the value on its own.
-    lv_label_set_text(s_popupName[i], used ? lines[i][0] : "");
-    lv_obj_set_style_text_color(s_popupName[i],
-                                colour(on ? Theme::ACCENT : Theme::TEXT), 0);
+    // A list of settings carries the key at the left and the value it holds
+    // at the right; a list of values has no key, so the value takes the line.
+    lv_obj_set_x(s_popupRow[i], values ? (lv_coord_t)POP_NAME
+                                       : (lv_coord_t)(POP_W - POP_PAD -
+                                                      POP_VALUE));
+    lv_obj_set_width(s_popupRow[i],
+                     values ? (lv_coord_t)(POP_W - POP_NAME - POP_PAD)
+                            : POP_VALUE);
+    lv_obj_set_style_text_align(
+        s_popupRow[i], values ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_text(s_popupRow[i], used ? lines[i][1] : "");
     lv_obj_set_style_text_color(s_popupRow[i],
                                 colour(on ? Theme::ACCENT : Theme::TEXT), 0);
 
-    lv_obj_t *parts[2] = {s_popupRow[i], s_popupName[i]};
+    lv_label_set_text(s_popupName[i], values ? "" : lines[i][0]);
+    lv_obj_set_style_text_color(s_popupName[i],
+                                colour(on ? Theme::ACCENT : Theme::MUTED), 0);
+
+    lv_label_set_text(s_popupMark[i], on ? (values ? "*" : ">") : "");
+    lv_obj_set_style_text_color(s_popupMark[i],
+                                colour(on ? Theme::ACCENT : Theme::MUTED), 0);
+
+    lv_obj_t *parts[3] = {s_popupRow[i], s_popupName[i], s_popupMark[i]};
     for (lv_obj_t *part : parts) {
       if (used) {
         lv_obj_remove_flag(part, LV_OBJ_FLAG_HIDDEN);
@@ -553,6 +574,15 @@ static void popupOpen(void) {
     return;
   }
 
+  s_scrim = lv_obj_create(s_root);
+  lv_obj_remove_style_all(s_scrim);
+  lv_obj_set_pos(s_scrim, 0, 0);
+  lv_obj_set_size(s_scrim, 420, 140);
+  lv_obj_set_style_bg_color(s_scrim, colour(Theme::BG), 0);
+  lv_obj_set_style_bg_opa(s_scrim, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(s_scrim, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(s_scrim, LV_OBJ_FLAG_SCROLLABLE);
+
   s_popup = lv_obj_create(s_root);
   lv_obj_remove_style_all(s_popup);
   lv_obj_set_pos(s_popup, POP_X, POP_Y);
@@ -565,13 +595,15 @@ static void popupOpen(void) {
   lv_obj_remove_flag(s_popup, LV_OBJ_FLAG_SCROLLABLE);
 
   s_popupTitle = text(s_popup, "OPTIONS", &lv_font_montserrat_12, Theme::MUTED,
-                      POP_PAD, 6, POP_W - 2 * POP_PAD);
+                      POP_PAD, 10, POP_W - 2 * POP_PAD);
   for (int i = 0; i < RIGHT_ROWS; ++i) {
-    s_popupName[i] = text(s_popup, "", &lv_font_montserrat_12, Theme::TEXT,
-                          POP_PAD, 26 + i * LINE_H,
-                          POP_W - 2 * POP_PAD - POP_VALUE - 2);
-    s_popupRow[i] = text(s_popup, "", &lv_font_montserrat_12, Theme::TEXT,
-                         POP_W - POP_PAD - POP_VALUE, 26 + i * LINE_H,
+    s_popupMark[i] = text(s_popup, "", &lv_font_montserrat_12, Theme::MUTED,
+                          POP_PAD, POP_ROW + 1 + i * POP_STEP, 10);
+    s_popupName[i] = text(s_popup, "", &lv_font_montserrat_12, Theme::MUTED,
+                          POP_NAME, POP_ROW + i * POP_STEP,
+                          POP_W - POP_NAME - POP_PAD - POP_VALUE);
+    s_popupRow[i] = text(s_popup, "", &lv_font_montserrat_14, Theme::TEXT,
+                         POP_W - POP_PAD - POP_VALUE, POP_ROW + i * POP_STEP,
                          POP_VALUE);
     lv_obj_set_style_text_align(s_popupRow[i], LV_TEXT_ALIGN_RIGHT, 0);
   }
@@ -586,6 +618,10 @@ static void popupClose(void) {
   if (s_popup != NULL) {
     lv_obj_delete(s_popup);
     s_popup = NULL;
+  }
+  if (s_scrim != NULL) {
+    lv_obj_delete(s_scrim);
+    s_scrim = NULL;
   }
 }
 
