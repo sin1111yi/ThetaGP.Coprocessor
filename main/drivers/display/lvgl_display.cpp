@@ -27,13 +27,8 @@
 #include "drivers/display/nv3007_lcd.h"
 
 #include "esp_lv_adapter.h"
-#include "esp_timer.h"
 
 namespace ThetaGP::Drivers::Display {
-
-uint32_t LvglDisplay::tickMs() {
-  return (uint32_t)(esp_timer_get_time() / 1000);
-}
 
 void LvglDisplay::init() {
   Nv3007Lcd::getInstance().init();
