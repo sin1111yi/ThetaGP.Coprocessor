@@ -121,7 +121,9 @@ static void popupShow(void);
 
 // ── what the level carries ──
 
-static uint8_t nameCount(void) {
+// The card after the last name is the one a profile is made from: it holds
+// nothing, and the column beside it says so.
+static uint8_t profileCount(void) {
   const uint8_t count = (uint8_t)model().profile_count;
   if (count == 0) {
     return 1;
@@ -129,8 +131,20 @@ static uint8_t nameCount(void) {
   return count > CARD_MAX ? CARD_MAX : count;
 }
 
+static bool isPlus(uint8_t index) { return index == profileCount(); }
+
+static uint8_t nameCount(void) {
+  const uint8_t count = profileCount();
+  // Room for one more, and the way to it is the plus that follows the names.
+  return count < CARD_MAX ? (uint8_t)(count + 1) : count;
+}
+
 static void nameLabel(uint8_t index, char *out, size_t cap) {
   const Model &m = model();
+  if (isPlus(index)) {
+    snprintf(out, cap, "+");
+    return;
+  }
   if (index + 1 == m.profile_id) {
     snprintf(out, cap, "%s", m.profile_name);
   } else {
@@ -138,7 +152,9 @@ static void nameLabel(uint8_t index, char *out, size_t cap) {
   }
 }
 
-static bool isActive(uint8_t index) { return index + 1 == model().profile_id; }
+static bool isActive(uint8_t index) {
+  return !isPlus(index) && index + 1 == model().profile_id;
+}
 
 // The profile the mark opened the menu for: the name of the card it sits on.
 static void profileName(char *out, size_t cap) {
@@ -148,6 +164,11 @@ static void profileName(char *out, size_t cap) {
 // One line of the profile's menu: the name it carries and its value.
 static void menuLine(int row, char label[40], char value[40]) {
   snprintf(label, 40, "%s", MENU_NAMES[row]);
+  if (isPlus((uint8_t)s_name)) {
+    // A card that stands for the profile not made yet has nothing to say.
+    snprintf(value, 40, "none");
+    return;
+  }
   switch (row) {
   case 0: {
     char name[26] = {};
@@ -271,15 +292,21 @@ static void rightShow(void) {
     break;
   default: {
     // The names have the focus: the column says what the card under it is.
+    snprintf(lines[0][0], 40, "NAME");
+    snprintf(lines[1][0], 40, "ACTIVE");
+    snprintf(lines[2][0], 40, "MAPPING CONFIG");
+    snprintf(lines[3][0], 40, "OPTIONS");
+    if (isPlus((uint8_t)s_name)) {
+      for (int i = 0; i < RIGHT_ROWS; ++i) {
+        snprintf(lines[i][1], 40, "none");
+      }
+      break;
+    }
     char name[26] = {};
     profileName(name, sizeof name);
-    snprintf(lines[0][0], 40, "NAME");
     snprintf(lines[0][1], 40, "%s", name);
-    snprintf(lines[1][0], 40, "ACTIVE");
     snprintf(lines[1][1], 40, "%s", isActive((uint8_t)s_name) ? "yes" : "no");
-    snprintf(lines[2][0], 40, "MAPPING CONFIG");
     snprintf(lines[2][1], 40, ">");
-    snprintf(lines[3][0], 40, "OPTIONS");
     snprintf(lines[3][1], 40, ">");
     break;
   }
@@ -634,6 +661,10 @@ static void popupClose(void) {
 void enter(void) {
   switch (s_focus) {
   case kNames:
+    if (isPlus((uint8_t)s_name)) {
+      // A profile is made from this card, which is the link's work.
+      return;
+    }
     // The focus leaves the names for the profile's own menu.
     s_focus = kMenu;
     s_row = 0;
