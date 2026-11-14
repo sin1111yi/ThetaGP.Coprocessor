@@ -1,8 +1,8 @@
-# Fetched at configure time (cmake/lvgl.cmake, cmake/sdl2.cmake,
-# cmake/nanopb.cmake)
+# Fetched at configure time (lib/CMakeLists.txt)
 lib/lvgl/
 lib/sdl2/
-third_party/nanopb/
+lib/nanopb/
+lib/espressif__*/
 
 # Generated at configure time (cmake/link.cmake)
 main/pb/
@@ -14,6 +14,3 @@ simulate/build/
 # ESP-IDF local configuration, generated from sdkconfig.defaults
 sdkconfig
 sdkconfig.old
-
-# Components fetched by the component manager
-managed_components/

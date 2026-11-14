@@ -36,6 +36,9 @@ idf_component_register(
     REQUIRES lvgl esp_timer esp_driver_spi esp_driver_gpio esp_driver_uart
              esp_lcd espressif__esp_lvgl_adapter)
 
+# nanopb and the adapter come from lib/CMakeLists.txt, not from a manifest:
+# there is no idf_component.yml here, and the component manager is off.
+
 # The panel is built on esp_lcd's panel interface, whose header is the
 # component's own rather than one of the exported ones.
 target_include_directories(${COMPONENT_LIB} PRIVATE

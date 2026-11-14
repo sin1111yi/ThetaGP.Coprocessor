@@ -31,18 +31,17 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# LVGL is fetched, not carried: see cmake/lvgl.cmake.
-include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/lvgl.cmake)
-thetagp_lvgl(${CMAKE_CURRENT_SOURCE_DIR}/../lib/lvgl)
+# The libraries are fetched, not carried: lib/CMakeLists.txt pins them for
+# this build and the firmware's alike.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../lib/CMakeLists.txt)
+thetagp_require(lvgl)
 add_subdirectory(${THETAGP_LVGL_DIR} ${CMAKE_CURRENT_BINARY_DIR}/lvgl)
 
 # The window the panel is blitted into. A checkout under lib/ is what was put
 # there by hand and wins over anything installed on the machine; otherwise a
 # system SDL2 is used when there is one, and fetched into lib/ only when there
-# is not: see cmake/sdl2.cmake.
-include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/sdl2.cmake)
-
-set(THETAGP_SDL2_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../lib/sdl2)
+# is not.
+set(THETAGP_SDL2_DIR ${THETAGP_LIB_DIR}/sdl2)
 if(EXISTS "${THETAGP_SDL2_DIR}/CMakeLists.txt"
    AND EXISTS "${THETAGP_SDL2_DIR}/include/SDL.h")
   set(THETAGP_SDL2_BUNDLED TRUE)
@@ -60,7 +59,7 @@ else()
     if(TARGET PkgConfig::SDL2)
       set(THETAGP_SDL2 PkgConfig::SDL2)
     else()
-      thetagp_sdl2(${THETAGP_SDL2_DIR})
+      thetagp_require(sdl2)
       set(THETAGP_SDL2_BUNDLED TRUE)
     endif()
   endif()

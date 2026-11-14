@@ -1,4 +1,0 @@
-## LVGL's own adapter, from the registry: it owns the display registration, the
-## LVGL task and the lock around it.
-dependencies:
-  espressif/esp_lvgl_adapter: "*"
