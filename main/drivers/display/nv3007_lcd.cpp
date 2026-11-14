@@ -328,7 +328,6 @@ void Nv3007Lcd::init() {
   _panel = panel;
 
   (void)panelReset(_panel);
-  printf("nv3007: %u commands\n", (unsigned)(sizeof kInit / sizeof kInit[0]));
   for (const Step &step : kInit) {
     if (step.delayMs != 0) {
       vTaskDelay(pdMS_TO_TICKS(step.delayMs));

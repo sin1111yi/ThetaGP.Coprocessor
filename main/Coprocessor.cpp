@@ -105,19 +105,32 @@ void Coprocessor::run() {
   for (;;) {
     // Nothing is asked of the main board until the wordmark has played out:
     // the bottom line is the menu's, not a screen the splash is still covering.
-    // The home page then gets a second to itself before anything moves.
-    if (!started && Ui::Menu::introDone()) {
-      if (!introSeen) {
+    // The home page then gets a second to itself before anything moves. The
+    // wordmark is the LVGL task's to end, so it is asked under its lock.
+    if (!started && !introSeen) {
+      bool played = false;
+      if (esp_lv_adapter_lock(-1) == ESP_OK) {
+        played = Ui::Menu::introDone();
+        esp_lv_adapter_unlock();
+      }
+      if (played) {
         introSeen = true;
-        introAt = lv_tick_get();
+        // The wait is the protocol's, not the screen's: a hardware timer keeps
+        // it out of LVGL's own clock.
+        introAt = (uint32_t)(esp_timer_get_time() / 1000);
       }
     }
-    if (!started && introSeen && (uint32_t)(lv_tick_get() - introAt) >= 1000U) {
+    if (!started && introSeen &&
+        (uint32_t)((uint32_t)(esp_timer_get_time() / 1000) - introAt) >= 1000U) {
       started = true;
       Drivers::Link::Link::getInstance().init();
       Drivers::Link::Link::getInstance().markReady();
-      // The schema, on top of the bytes: the first hello names this panel.
-      Drivers::Link::PanelProtocol::getInstance().init();
+      // The schema, on top of the bytes: the first hello names this panel, and
+      // the beat it sends reads the menu, so it is sent under the same lock.
+      if (esp_lv_adapter_lock(-1) == ESP_OK) {
+        Drivers::Link::PanelProtocol::getInstance().init();
+        esp_lv_adapter_unlock();
+      }
     }
 
     if (started) {
