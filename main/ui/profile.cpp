@@ -54,9 +54,9 @@ using Theme::text;
 #define RIGHT_Y     ((140 - Cards::HEIGHT) / 2)
 #define MOVE_MS     480
 
-// The window a setting is edited in: it covers the page, twenty-five pixels in
-// from either side and ten from the top and the bottom. The page under it is
-// cleared to its own background, so nothing of the level shows at the edges.
+// The window a setting is edited in: twenty-five pixels in from either side of
+// the page and ten from the top and the bottom, floating over the level that
+// is still behind it.
 #define POP_W       (420 - 2 * 25)
 #define POP_H       (140 - 2 * 10)
 #define POP_X       25
@@ -112,7 +112,6 @@ static int s_valueRow;
 static lv_obj_t *s_root;
 static Cards::Column s_right;
 
-static lv_obj_t *s_scrim; // the page, cleared under the window
 static lv_obj_t *s_popup; // the window a setting is edited in
 static lv_obj_t *s_popupTitle;
 static lv_obj_t *s_popupRow[RIGHT_ROWS];
@@ -418,10 +417,6 @@ void free(void) {
     lv_obj_delete(s_popup);
     s_popup = NULL;
   }
-  if (s_scrim != NULL) {
-    lv_obj_delete(s_scrim);
-    s_scrim = NULL;
-  }
   s_right.drop();
   s_root = NULL;
   s_thumb = NULL;
@@ -574,15 +569,6 @@ static void popupOpen(void) {
     return;
   }
 
-  s_scrim = lv_obj_create(s_root);
-  lv_obj_remove_style_all(s_scrim);
-  lv_obj_set_pos(s_scrim, 0, 0);
-  lv_obj_set_size(s_scrim, 420, 140);
-  lv_obj_set_style_bg_color(s_scrim, colour(Theme::BG), 0);
-  lv_obj_set_style_bg_opa(s_scrim, LV_OPA_COVER, 0);
-  lv_obj_remove_flag(s_scrim, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(s_scrim, LV_OBJ_FLAG_SCROLLABLE);
-
   s_popup = lv_obj_create(s_root);
   lv_obj_remove_style_all(s_popup);
   lv_obj_set_pos(s_popup, POP_X, POP_Y);
@@ -618,10 +604,6 @@ static void popupClose(void) {
   if (s_popup != NULL) {
     lv_obj_delete(s_popup);
     s_popup = NULL;
-  }
-  if (s_scrim != NULL) {
-    lv_obj_delete(s_scrim);
-    s_scrim = NULL;
   }
 }
 
