@@ -121,39 +121,39 @@ static void popupShow(void);
 
 // ── what the level carries ──
 
-// The card after the last name is the one a profile is made from: it holds
-// nothing, and the column beside it says so.
+// The list the store carries: the factory profile first, then one card per
+// profile, then the plus a profile is made from. The factory profile is the
+// build's own -- it is read and never written.
 static uint8_t profileCount(void) {
   const uint8_t count = (uint8_t)model().profile_count;
-  if (count == 0) {
-    return 1;
-  }
-  return count > CARD_MAX ? CARD_MAX : count;
+  return count > CARD_MAX - 2 ? (uint8_t)(CARD_MAX - 2) : count;
 }
 
-static bool isPlus(uint8_t index) { return index == profileCount(); }
+static bool isFactory(uint8_t index) { return index == 0; }
 
-static uint8_t nameCount(void) {
-  const uint8_t count = profileCount();
-  // Room for one more, and the way to it is the plus that follows the names.
-  return count < CARD_MAX ? (uint8_t)(count + 1) : count;
-}
+static bool isPlus(uint8_t index) { return index == (uint8_t)(profileCount() + 1); }
+
+static uint8_t nameCount(void) { return (uint8_t)(profileCount() + 2); }
 
 static void nameLabel(uint8_t index, char *out, size_t cap) {
   const Model &m = model();
+  if (isFactory(index)) {
+    snprintf(out, cap, "%s", "Default");
+    return;
+  }
   if (isPlus(index)) {
     snprintf(out, cap, "+");
     return;
   }
-  if (index + 1 == m.profile_id) {
+  if (index == m.profile_id) {
     snprintf(out, cap, "%s", m.profile_name);
   } else {
-    snprintf(out, cap, "PROFILE %u", (unsigned)(index + 1));
+    snprintf(out, cap, "PROFILE %u", (unsigned)index);
   }
 }
 
 static bool isActive(uint8_t index) {
-  return !isPlus(index) && index + 1 == model().profile_id;
+  return !isPlus(index) && index == model().profile_id;
 }
 
 // The profile the mark opened the menu for: the name of the card it sits on.
@@ -180,7 +180,7 @@ static void menuLine(int row, char label[40], char value[40]) {
     snprintf(value, 40, "%s", isActive((uint8_t)s_name) ? "active" : "stored");
     break;
   default:
-    snprintf(value, 40, ">");
+    snprintf(value, 40, "%s", isFactory((uint8_t)s_name) ? "default" : ">");
     break;
   }
 }
@@ -306,8 +306,12 @@ static void rightShow(void) {
     profileName(name, sizeof name);
     snprintf(lines[0][1], 40, "%s", name);
     snprintf(lines[1][1], 40, "%s", isActive((uint8_t)s_name) ? "yes" : "no");
-    snprintf(lines[2][1], 40, ">");
-    snprintf(lines[3][1], 40, ">");
+    // The factory profile carries the build's own mapping and settings: they
+    // are read, and there is nothing behind them to change.
+    snprintf(lines[2][1], 40, "%s",
+             isFactory((uint8_t)s_name) ? "default" : ">");
+    snprintf(lines[3][1], 40, "%s",
+             isFactory((uint8_t)s_name) ? "default" : ">");
     break;
   }
   }
@@ -320,16 +324,9 @@ static void rightShow(void) {
 
 // ── the cards ──
 
-static float rel(int i) {
-  float away = (float)i - s_scroll;
-  while (away > s_nameCount / 2.0f) {
-    away -= s_nameCount;
-  }
-  while (away < -s_nameCount / 2.0f) {
-    away += s_nameCount;
-  }
-  return away;
-}
+// The names are a list with a first and a last card: the column does not
+// wrap, so the factory profile stays at the top and the plus at the bottom.
+static float rel(int i) { return (float)i - s_scroll; }
 
 static void cardLayout(void) {
   int chosen = (int)std::floor(s_scroll + 0.5f);
@@ -387,9 +384,14 @@ static void cardAnim(void *var, int32_t value) {
 
 static void cardAnimDone(lv_anim_t *anim) {
   (void)anim;
-  float pos = s_scroll;
-  pos -= std::floor(pos / s_nameCount) * s_nameCount;
-  s_name = (int)std::floor(pos + 0.5f) % s_nameCount;
+  int row = (int)std::floor(s_scroll + 0.5f);
+  if (row < 0) {
+    row = 0;
+  }
+  if (row >= s_nameCount) {
+    row = s_nameCount - 1;
+  }
+  s_name = row;
   s_scroll = (float)s_name;
   cardLayout();
   rightShow();
@@ -489,6 +491,10 @@ void layout(void) {
 void move(int step) {
   switch (s_focus) {
   case kNames: {
+    const int target = s_name + step;
+    if (target < 0 || target >= s_nameCount) {
+      return;
+    }
     lv_anim_delete(&s_scroll, NULL);
     s_animFrom = s_scroll;
     s_animDiff = (float)step;
@@ -663,6 +669,10 @@ void enter(void) {
   case kNames:
     if (isPlus((uint8_t)s_name)) {
       // A profile is made from this card, which is the link's work.
+      return;
+    }
+    if (isFactory((uint8_t)s_name)) {
+      // The factory profile is read-only: it opens nothing.
       return;
     }
     // The focus leaves the names for the profile's own menu.
