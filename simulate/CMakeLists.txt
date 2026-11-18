@@ -88,6 +88,7 @@ add_executable(simulate
   main_sim.cpp
   ../main/ui/menu.cpp
   ../main/ui/column.cpp
+  ../main/ui/spring.cpp
   ../main/ui/profile.cpp
   ../main/ui/home.cpp
   ../main/ui/logo.c

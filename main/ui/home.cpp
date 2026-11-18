@@ -29,6 +29,7 @@
 #include "build_info.h"
 #include "ui/column.h"
 #include "ui/menu.h"
+#include "ui/spring.h"
 #include "ui/theme.h"
 
 namespace ThetaGP::Ui::Home {
@@ -83,8 +84,6 @@ static const char *const PARAM_KEYS[CARD_COUNT][PARAM_ROWS] = {
 };
 
 static float s_scroll;
-static float s_anim_from;
-static float s_anim_diff;
 static lv_obj_t *s_cards[CARD_COUNT];
 static lv_obj_t *s_titles[CARD_COUNT];
 static lv_obj_t *s_icons[CARD_COUNT];
@@ -266,51 +265,30 @@ void build(lv_obj_t *root) {
 }
 
 void free(void) {
-  lv_anim_delete(&s_scroll, NULL);
+  Spring::stop(&s_scroll);
   s_column.drop();
 }
 
-
-// An underdamped spring: the column and the thumb reach the next place a
-// little early, then settle back into it instead of stopping dead.
-static int32_t home_path(const lv_anim_t *anim) {
-  const float t = (float)anim->act_time / (float)anim->duration;
-  const float settle =
-      1.0f -
-      std::exp(-6.0f * t) * (std::cos(9.0f * t) + 0.67f * std::sin(9.0f * t));
-  return anim->start_value +
-         (int32_t)((float)(anim->end_value - anim->start_value) * settle);
-}
-
-static void home_anim_cb(void *var, int32_t value) {
-  (void)var;
-  const float t = (float)value / 1000.0f;
-  s_scroll = s_anim_from + s_anim_diff * t;
+// The spring's position is where the column is: the cards and the thumb are
+// laid out for it at every frame.
+static void scrolled(void *key, float value) {
+  (void)key;
+  s_scroll = value;
   layout();
 }
 
-static void home_anim_done(lv_anim_t *anim) {
-  (void)anim;
+static void arrived(void *key) {
+  (void)key;
   s_scroll = (float)selected();
   layout();
 }
 
 void step(int step) {
   params_enter(step);
-
-  lv_anim_delete(&s_scroll, NULL);
-  s_anim_from = s_scroll;
-  s_anim_diff = (float)step;
-
-  lv_anim_t anim;
-  lv_anim_init(&anim);
-  lv_anim_set_var(&anim, &s_scroll);
-  lv_anim_set_values(&anim, 0, 1000);
-  lv_anim_set_exec_cb(&anim, home_anim_cb);
-  lv_anim_set_completed_cb(&anim, home_anim_done);
-  lv_anim_set_duration(&anim, 480);
-  lv_anim_set_path_cb(&anim, home_path);
-  lv_anim_start(&anim);
+  // From wherever the column is now, so a move made during another carries
+  // on from it, one place on.
+  Spring::run(&s_scroll, Spring::CARDS, s_scroll, s_scroll + (float)step,
+              scrolled, arrived);
 }
 
 void refresh(void) {

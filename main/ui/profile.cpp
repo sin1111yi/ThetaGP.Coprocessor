@@ -26,6 +26,7 @@
 
 #include "ui/column.h"
 #include "ui/menu.h"
+#include "ui/spring.h"
 #include "ui/theme.h"
 
 namespace ThetaGP::Ui::Profile {
@@ -52,7 +53,6 @@ using Theme::text;
 #define RIGHT_W     215
 #define RIGHT_ROWS  Cards::ROWS
 #define RIGHT_Y     ((140 - Cards::HEIGHT) / 2)
-#define MOVE_MS     480
 
 // The window a setting is edited in: twenty-five pixels in from either side of
 // the page and ten from the top and the bottom, floating over the level that
@@ -92,8 +92,6 @@ static Focus s_focus;
 
 // The names: where the column is, which card the mark is on, and the cards.
 static float s_scroll;
-static float s_animFrom;
-static float s_animDiff;
 static int s_name;
 static uint8_t s_nameCount;
 static lv_obj_t *s_cards[CARD_MAX];
@@ -325,24 +323,16 @@ static void cardLayout(void) {
   }
 }
 
-static int32_t spring(const lv_anim_t *anim) {
-  const float t = (float)anim->act_time / (float)anim->duration;
-  const float settle =
-      1.0f -
-      std::exp(-6.0f * t) * (std::cos(9.0f * t) + 0.67f * std::sin(9.0f * t));
-  return anim->start_value +
-         (int32_t)((float)(anim->end_value - anim->start_value) * settle);
-}
-
-static void cardAnim(void *var, int32_t value) {
-  (void)var;
-  const float t = (float)value / 1000.0f;
-  s_scroll = s_animFrom + s_animDiff * t;
+// The spring's position is where the names are: the cards and the thumb are
+// laid out for it at every frame.
+static void cardScrolled(void *key, float value) {
+  (void)key;
+  s_scroll = value;
   cardLayout();
 }
 
-static void cardAnimDone(lv_anim_t *anim) {
-  (void)anim;
+static void cardArrived(void *key) {
+  (void)key;
   int row = (int)std::floor(s_scroll + 0.5f);
   if (row < 0) {
     row = 0;
@@ -412,7 +402,7 @@ void build(lv_obj_t *root) {
 }
 
 void free(void) {
-  lv_anim_delete(&s_scroll, NULL);
+  Spring::stop(&s_scroll);
   if (s_popup != NULL) {
     lv_obj_delete(s_popup);
     s_popup = NULL;
@@ -437,18 +427,8 @@ void move(int step) {
     if (target < 0 || target >= s_nameCount) {
       return;
     }
-    lv_anim_delete(&s_scroll, NULL);
-    s_animFrom = s_scroll;
-    s_animDiff = (float)step;
-    lv_anim_t anim;
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, &s_scroll);
-    lv_anim_set_values(&anim, 0, 1000);
-    lv_anim_set_exec_cb(&anim, cardAnim);
-    lv_anim_set_completed_cb(&anim, cardAnimDone);
-    lv_anim_set_path_cb(&anim, spring);
-    lv_anim_set_duration(&anim, MOVE_MS);
-    lv_anim_start(&anim);
+    Spring::run(&s_scroll, Spring::CARDS, s_scroll, s_scroll + (float)step,
+                cardScrolled, cardArrived);
     break;
   }
   case kMenu: {

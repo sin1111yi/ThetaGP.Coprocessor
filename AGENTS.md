@@ -47,6 +47,11 @@ Simulator (no hardware; use this to verify UI changes):
 - `main/ui/menu.h` `Model` is the seam for the `ThetaGP.PB` protocol, which is
   **not wired in yet**. Protocol code should call the `Menu::set*` / navigation
   functions rather than touch widgets.
+- `main/ui/spring.h` is the one place a damped ("springy") animation comes
+  from. A page calls `Spring::run(key, tuning, from, to, apply, done)`; the
+  position at each frame is `1 - e^(-decay t)(cos(omega t) + decay/omega
+  sin(omega t))` and nothing else. Tunings (`Spring::CARDS`, `Spring::COLUMN`)
+  live in that header; do not write another easing curve in a page.
 - `simulate/` is a separate CMake project that compiles the real
   `../main/ui/menu.cpp`. ESP-IDF calls are satisfied by stubs in
   `simulate/include/driver/`; `gpio_get_level` always returns idle, so the board

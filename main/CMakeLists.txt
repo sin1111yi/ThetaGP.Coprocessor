@@ -30,6 +30,7 @@ idf_component_register(
          "${THETAGP_NANOPB_DIR}/pb_decode.c"
          "ui/menu.cpp"
          "ui/column.cpp"
+         "ui/spring.cpp"
          "ui/profile.cpp"
          "ui/home.cpp"
          "ui/logo.c"
