@@ -131,7 +131,7 @@ void Coprocessor::run() {
       // The schema, on top of the bytes: the first hello names this panel, and
       // the beat it sends reads the menu, so it is sent under the same lock.
       if (esp_lv_adapter_lock(-1) == ESP_OK) {
-        Drivers::Link::PanelProtocol::getInstance().init();
+        Protocol::PanelProtocol::getInstance().init();
         esp_lv_adapter_unlock();
       }
     }
@@ -155,7 +155,7 @@ void Coprocessor::run() {
       // The widgets belong to the adapter's task: what is applied here is
       // applied under its lock.
       if (esp_lv_adapter_lock(-1) == ESP_OK) {
-        Drivers::Link::PanelProtocol::getInstance().tick();
+        Protocol::PanelProtocol::getInstance().tick();
         // The menu says whether the board is answering, and changes once when
         // that answer starts or stops.
         const bool up = Drivers::Link::Link::getInstance().alive();

@@ -35,7 +35,7 @@
 #include "pb_decode.h"
 #include "pb_encode.h"
 
-namespace ThetaGP::Drivers::Link {
+namespace ThetaGP::Protocol {
 
 namespace {
 
@@ -81,7 +81,7 @@ bool send(const ThetaGP_Link_Message &message) {
     printf("link: encode refused: %s\n", PB_GET_ERROR(&stream));
     return false;
   }
-  return Link::getInstance().send(payload,
+  return Drivers::Link::Link::getInstance().send(payload,
                                   static_cast<uint16_t>(stream.bytes_written));
 }
 
@@ -94,7 +94,7 @@ void copyField(char *out, size_t size, const char *field) {
 } // namespace
 
 void PanelProtocol::init() {
-  Link::getInstance().setHandler(onFrame, this);
+  Drivers::Link::Link::getInstance().setHandler(onFrame, this);
   sendHello();
   _greeted = true;
   _lastHelloMs = nowMs();
@@ -105,7 +105,7 @@ void PanelProtocol::tick() {
   apply();
 
   const uint32_t now = nowMs();
-  const bool heard = Link::getInstance().heard();
+  const bool heard = Drivers::Link::Link::getInstance().heard();
 
   // A board that has answered nothing is greeted once a second; one that has
   // is greeted every ten, so a board that reboots is found again.
@@ -139,10 +139,10 @@ uint32_t PanelProtocol::shape() const {
   const Ui::Menu::Screen screen = Ui::Menu::screen();
   uint32_t shape = (uint32_t)screen.page;
   shape = shape << 8 | screen.item;
-  shape = shape << 1 | (Link::getInstance().heard() ? 1u : 0u);
+  shape = shape << 1 | (Drivers::Link::Link::getInstance().heard() ? 1u : 0u);
   shape = shape << 1 | (Ui::Menu::introDone() ? 1u : 0u);
   shape = shape << 1 |
-          (Display::Nv3007Lcd::getInstance().backlightOn() ? 1u : 0u);
+          (Drivers::Display::Nv3007Lcd::getInstance().backlightOn() ? 1u : 0u);
   return shape;
 }
 
@@ -155,11 +155,11 @@ void PanelProtocol::beat(bool now) {
   message.kind.beat.uptime_s = nowSeconds();
   message.kind.beat.page = (uint32_t)screen.page;
   message.kind.beat.item = screen.item;
-  message.kind.beat.link = Link::getInstance().heard();
+  message.kind.beat.link = Drivers::Link::Link::getInstance().heard();
   message.kind.beat.backlight =
-      Display::Nv3007Lcd::getInstance().backlightOn();
+      Drivers::Display::Nv3007Lcd::getInstance().backlightOn();
   message.kind.beat.intro_done = Ui::Menu::introDone();
-  message.kind.beat.dropped = Link::getInstance().refused();
+  message.kind.beat.dropped = Drivers::Link::Link::getInstance().refused();
 
   if (send(message)) {
     _lastBeatMs = nowMs();
@@ -267,4 +267,4 @@ void PanelProtocol::apply() {
   }
 }
 
-} // namespace ThetaGP::Drivers::Link
+} // namespace ThetaGP::Protocol

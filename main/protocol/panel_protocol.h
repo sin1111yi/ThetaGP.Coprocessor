@@ -30,7 +30,7 @@
 
 #include "drivers/link/link.h"
 
-namespace ThetaGP::Drivers::Link {
+namespace ThetaGP::Protocol {
 
 class PanelProtocol {
 public:
@@ -85,4 +85,4 @@ private:
   uint32_t _lastShape = 0;
 };
 
-} // namespace ThetaGP::Drivers::Link
+} // namespace ThetaGP::Protocol
