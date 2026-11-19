@@ -39,6 +39,7 @@
 #include "drivers/link/link.h"
 #include "protocol/panel_protocol.h"
 #include "ui/menu.h"
+#include "wire/frame.h"
 
 namespace ThetaGP {
 
@@ -77,11 +78,6 @@ uint16_t panelHeight(void *context) {
 bool backlightOn(void *context) {
   (void)context;
   return Drivers::Display::Nv3007Lcd::getInstance().backlightOn();
-}
-
-// What the link hands a payload to.
-void onFrame(const uint8_t *payload, uint16_t length, void *context) {
-  static_cast<Protocol::PanelProtocol *>(context)->deliver(payload, length);
 }
 
 const Protocol::Transport kTransport = {sendOnLink, heardOnLink, refusedOnLink,
@@ -175,18 +171,23 @@ void Coprocessor::run() {
     if (!started && introSeen &&
         (uint32_t)((uint32_t)(esp_timer_get_time() / 1000) - introAt) >= 1000U) {
       started = true;
-      Drivers::Link::Link &link = Drivers::Link::Link::getInstance();
-      link.init();
-      // A frame the link assembles is the protocol's: the handler goes in
-      // before the board is told the decoder is listening.
-      link.setHandler(onFrame, &Protocol::PanelProtocol::getInstance());
-      link.markReady();
+      Drivers::Link::Link::getInstance().init();
+      Drivers::Link::Link::getInstance().markReady();
       // The schema, on top of the bytes: the first hello names this panel, and
       // the beat it sends reads the menu, so it is sent under the same lock.
       if (esp_lv_adapter_lock(-1) == ESP_OK) {
         Protocol::PanelProtocol::getInstance().init(kTransport, kPanel);
         esp_lv_adapter_unlock();
       }
+    }
+
+    // The bytes are read on the link's core and assembled into frames there;
+    // taking them and reading what they say is this task's work, so what they
+    // ask for is applied under the lock below. A message layer with an inbox
+    // that only this task writes is what keeps that split simple.
+    Wire::Frame::Payload frame = {};
+    while (Drivers::Link::Link::getInstance().take(frame)) {
+      Protocol::PanelProtocol::getInstance().feed(frame.bytes, frame.length);
     }
 
     // The board button walks the menu until the link's own buttons arrive: a

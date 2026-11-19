@@ -42,6 +42,17 @@ constexpr int kRxBuffer = 2048;
 constexpr uint32_t kIdleTimeoutMs = 20;
 constexpr uint8_t kReadChunk = 64;
 
+// The core the bytes are read on, away from the one the widgets are driven on:
+// a frame arriving while the panel is flushed is read at once, and the flush is
+// not held up by the read. The queue between the two is the frame layer's.
+constexpr BaseType_t kCore = 1;
+constexpr UBaseType_t kPriority = 6;
+constexpr uint32_t kStack = 4096;
+
+uint32_t nowMs(void) {
+  return static_cast<uint32_t>(esp_timer_get_time() / 1000);
+}
+
 } // namespace
 
 void Link::init() {
@@ -64,8 +75,7 @@ void Link::init() {
   ESP_ERROR_CHECK(gpio_config(&ready));
   gpio_set_level(PIN_LINK_READY, 0);
 
-  Frame::selfCheck();
-  _parser.reset();
+  Wire::Frame::selfCheck();
 
   // The pins looped inside the peripheral: the frame this end writes has to
   // come back byte for byte, which separates the wire from the code.
@@ -74,7 +84,7 @@ void Link::init() {
   const uint8_t probe[] = {'L', 'O', 'O', 'P'};
   uint8_t framed[FRAME_MAX] = {};
   const uint16_t size =
-      Frame::encode(probe, sizeof probe, framed, sizeof framed);
+      Wire::Frame::encode(probe, sizeof probe, framed, sizeof framed);
   uint8_t echo[FRAME_MAX] = {};
   uart_write_bytes(kPort, framed, size);
   const int heard = uart_read_bytes(kPort, echo, size, pdMS_TO_TICKS(100));
@@ -85,7 +95,8 @@ void Link::init() {
                                                                  : "failed",
          heard, (int)size);
 
-  xTaskCreatePinnedToCore(taskEntry, "link", 4096, this, 6, nullptr, 1);
+  xTaskCreatePinnedToCore(taskEntry, "link", kStack, this, kPriority, nullptr,
+                          kCore);
   printf("link: uart1 %d baud, tx %d rx %d\n", LINK_BAUD, PIN_LINK_TX,
          PIN_LINK_RX);
 }
@@ -106,40 +117,47 @@ void Link::run() {
   uint32_t reported = 0;
 
   for (;;) {
+    // A half frame whose bytes stopped arriving is dropped here, on the task
+    // that read them.
+    (void)_frame.tick(nowMs());
+
     // A line that carried nothing but noise says so once, when it first does.
-    if (_parser.refused() != 0 && _parser.refused() != reported) {
-      reported = _parser.refused();
+    if (_frame.droppedFrames() != 0 && _frame.droppedFrames() != reported) {
+      reported = _frame.droppedFrames();
       printf("link: %u frames refused, %u B seen\n", (unsigned)reported,
              (unsigned)_bytesRead);
     }
 
     const int read = uart_read_bytes(kPort, chunk, sizeof chunk,
                                      pdMS_TO_TICKS(kIdleTimeoutMs));
-    _bytesRead = _bytesRead + (uint32_t)(read > 0 ? read : 0);
-    for (int i = 0; i < read; ++i) {
-      if (_parser.feed(chunk[i])) {
-        deliver(_parser.payload(), _parser.length());
-      }
+    if (read > 0) {
+      _bytesRead = _bytesRead + (uint32_t)read;
+      _frame.feed(chunk, (uint16_t)read, nowMs());
     }
   }
 }
 
-bool Link::alive() const {
-  const uint32_t now = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+bool Link::take(Wire::Frame::Payload &out) {
+  if (!_frame.take(out)) {
+    return false;
+  }
+  _lastFrameMs = nowMs();
+  _taken = _taken + 1;
+  return true;
+}
+
+uint32_t Link::refused(void) const { return _frame.droppedFrames(); }
+
+bool Link::alive(void) const {
+  const uint32_t now = nowMs();
   const uint32_t last = _lastFrameMs;
   return last != 0 && static_cast<uint32_t>(now - last) < 1500;
 }
 
-void Link::deliver(const uint8_t *payload, uint16_t length) {
-  _lastFrameMs = static_cast<uint32_t>(esp_timer_get_time() / 1000);
-  if (_handler != nullptr) {
-    _handler(payload, length, _context);
-  }
-}
-
 bool Link::send(const uint8_t *payload, uint16_t length) {
   uint8_t framed[FRAME_MAX] = {};
-  const uint16_t size = Frame::encode(payload, length, framed, sizeof framed);
+  const uint16_t size = Wire::Frame::encode(payload, length, framed,
+                                            sizeof framed);
   if (size == 0) {
     return false;
   }

@@ -21,17 +21,17 @@
 
 // The arms of Link.proto read in one place: a payload goes in, and what it
 // asked for is left in an inbox for the task that owns the widgets. The frame
-// the message arrived in is the transport's; this layer only reads payloads.
+// the message arrived in is the wire's; this layer only reads payloads, and it
+// reads them on the task that applies them.
 
 #pragma once
 
 #include <cstdint>
 
-namespace ThetaGP::Protocol {
+namespace ThetaGP::Wire {
 
-// What the board has asked for since the last time it was applied. The link's
-// task fills it and the task that drives LVGL empties it, so only the parts
-// the two share are volatile.
+// What the board has asked for since the last time it was applied. Filled and
+// emptied on the task that owns the widgets, so nothing here is volatile.
 struct Inbox {
   bool boardPending = false;
   char boardId[21] = {};
@@ -43,10 +43,11 @@ struct Inbox {
   uint32_t profileCount = 0;
   char profileName[25] = {};
 
+  // A burst is applied in one go; the steps past this one are dropped, the
+  // same way a full queue drops what it cannot hold.
   static constexpr uint8_t kNavMax = 8;
   uint8_t nav[kNavMax] = {};
-  volatile uint8_t navHead = 0;
-  volatile uint8_t navTail = 0;
+  uint8_t navCount = 0;
 };
 
 // The arms of the schema, dispatched by the message the payload carries. A new
@@ -59,4 +60,4 @@ public:
   static bool take(const uint8_t *payload, uint16_t length, Inbox &inbox);
 };
 
-} // namespace ThetaGP::Protocol
+} // namespace ThetaGP::Wire

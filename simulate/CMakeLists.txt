@@ -152,7 +152,7 @@ endif()
 # and the frames that must not be taken.
 add_executable(frame_test
   frame_test.cpp
-  ../main/drivers/link/frame.cpp
+  ../main/wire/frame.cpp
 )
 target_include_directories(frame_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../main

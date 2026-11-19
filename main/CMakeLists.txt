@@ -24,9 +24,7 @@ idf_component_register(
          "drivers/display/nv3007_init.cpp"
          "drivers/display/nv3007_lcd.cpp"
          "drivers/input/button.cpp"
-         "drivers/link/frame.cpp"
          "drivers/link/link.cpp"
-         "protocol/dispatch.cpp"
          "protocol/panel_protocol.cpp"
          "pb/Link.pb.c"
          "${THETAGP_NANOPB_DIR}/pb_common.c"
@@ -50,6 +48,8 @@ idf_component_register(
          "ui/splash.cpp"
          "ui/spring.cpp"
          "ui/widgets/column.cpp"
+         "wire/dispatch.cpp"
+         "wire/frame.cpp"
     INCLUDE_DIRS "." "pb" "${THETAGP_NANOPB_DIR}"
     REQUIRES lvgl esp_timer esp_driver_spi esp_driver_gpio esp_driver_uart
              esp_lcd espressif__esp_lvgl_adapter)

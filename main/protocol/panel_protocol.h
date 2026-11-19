@@ -30,8 +30,8 @@
 
 #include "Link.pb.h"
 
-#include "protocol/dispatch.h"
 #include "protocol/transport.h"
+#include "wire/dispatch.h"
 
 namespace ThetaGP::Protocol {
 
@@ -50,8 +50,9 @@ public:
   // beats at once when what the screen shows has changed.
   void tick();
 
-  // One frame the transport carried in, on the transport's task.
-  void deliver(const uint8_t *payload, uint16_t length);
+  // One payload the wire assembled: read on the task that takes frames, and
+  // applied on the next tick.
+  void feed(const uint8_t *payload, uint16_t length);
 
 private:
   PanelProtocol() = default;
@@ -72,7 +73,7 @@ private:
 
   Transport _transport;
   Panel _panel;
-  Inbox _inbox;
+  Wire::Inbox _inbox;
 
   uint32_t _lastHelloMs = 0;
   uint32_t _lastBeatMs = 0;

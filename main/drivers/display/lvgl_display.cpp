@@ -37,6 +37,9 @@ void LvglDisplay::init() {
   }
 
   esp_lv_adapter_config_t config = ESP_LV_ADAPTER_DEFAULT_CONFIG();
+  // The widgets are driven on this core; the link reads its bytes on the other
+  // one, and the frame queue is the only thing between them.
+  config.task_core_id = 0;
   if (esp_lv_adapter_init(&config) != ESP_OK) {
     printf("nv3007: no adapter\n");
     return;

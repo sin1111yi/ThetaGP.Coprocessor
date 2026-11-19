@@ -19,14 +19,14 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "protocol/dispatch.h"
+#include "wire/dispatch.h"
 
 #include <cstring>
 
 #include "Link.pb.h"
 #include "pb_decode.h"
 
-namespace ThetaGP::Protocol {
+namespace ThetaGP::Wire {
 
 namespace {
 
@@ -53,16 +53,15 @@ void takeState(const ThetaGP_Link_Message &message, Inbox &inbox) {
   inbox.statePending = true;
 }
 
-// One step for the panel, queued behind the ones already waiting.
+// One step for the panel, behind the ones already waiting.
 void takeNav(const ThetaGP_Link_Message &message, Inbox &inbox) {
-  const uint8_t next = (uint8_t)((inbox.navHead + 1) % Inbox::kNavMax);
-  if (next == inbox.navTail) {
-    // The queue is full: the step is dropped rather than overwriting the one
+  if (inbox.navCount == Inbox::kNavMax) {
+    // The inbox is full: the step is dropped rather than overwriting the one
     // that is still to be applied.
     return;
   }
-  inbox.nav[inbox.navHead] = (uint8_t)message.kind.nav.action;
-  inbox.navHead = next;
+  inbox.nav[inbox.navCount] = static_cast<uint8_t>(message.kind.nav.action);
+  ++inbox.navCount;
 }
 
 } // namespace
@@ -92,4 +91,4 @@ bool Dispatch::take(const uint8_t *payload, uint16_t length, Inbox &inbox) {
   return true;
 }
 
-} // namespace ThetaGP::Protocol
+} // namespace ThetaGP::Wire

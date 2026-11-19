@@ -37,11 +37,15 @@ Simulator (no hardware; use this to verify UI changes):
   (send, heard, refused) and a `Panel` (width, height, backlight) at `init`.
   - `main/app/` — `Coprocessor.{h,cpp}`: boot order, the protocol loop, the
     board button turned into menu actions.
-  - `main/protocol/` — `dispatch.{h,cpp}` reads one payload and leaves what it
-    asked for in an `Inbox` (the one place a new message kind is added), and
-    `panel_protocol.{h,cpp}` is the session: hello, beat, shape, and applying
-    an inbox on the task that owns the widgets. `transport.h` is the seam the
-    app fills in.
+  - `main/wire/` — `frame.{h,cpp}` is the framing (a varint length, the
+    payload, its sum) with a queue of whole frames and the reasons a frame is
+    dropped; `dispatch.{h,cpp}` reads one payload and leaves what it asked for
+    in an `Inbox` (the one place a new message kind is added). Neither names a
+    message field of the board's, a driver, or a widget, and both build on a
+    desk.
+  - `main/protocol/` — `panel_protocol.{h,cpp}` is the session: hello, beat,
+    shape, and applying an inbox on the task that owns the widgets.
+    `transport.h` is the seam the app fills in.
   - `main/ui/` — `model.{h,cpp}` (what the protocol writes and the pages
     read), `menu.{h,cpp}` (page stack and navigation), `splash.{h,cpp}`,
     `theme.h`, `spring.{h,cpp}`, `pages/` (one file a page plus `pages.h`),
@@ -49,12 +53,18 @@ Simulator (no hardware; use this to verify UI changes):
     `profile_menu`, `profile_popup`, `profile`), `widgets/` (`column`),
     `assets/` (`logo`).
   - `main/drivers/` — `display/` (`lvgl_display`, `nv3007_lcd`,
-    `nv3007_init`), `input/` (`button`), `link/` (`link`, `frame`).
+    `nv3007_init`), `input/` (`button`), `link/` (`link`: the UART, the ready
+    line, the task that reads it).
 - Entry: `main/main.cpp` `app_main` → `app/Coprocessor.{h,cpp}`: `setup()`
   then `run()`. `setup` inits `LvglDisplay` (which brings up `Nv3007Lcd` and
   starts `esp_lvgl_adapter`) → `Ui::Menu::init()` and seeds the model. The
   adapter owns the LVGL task, tick and lock; `run` is the protocol loop, paced
   by a 10 ms `esp_timer`, and touches widgets only under `esp_lv_adapter_lock`.
+- Both cores are used, and the split is by who owns what: the LVGL task is
+  pinned to core 0 (`config.task_core_id`), the link task reads the UART on
+  core 1, and the app loop runs on core 0 with the widgets. The only thing
+  between them is `Wire::Frame`'s slot queue — a single producer and a single
+  consumer, each index written by one task, so no lock is needed on it.
 - `main/drivers/display/nv3007_lcd.cpp` is a hand-written `esp_lcd` panel for
   the NV3007: window-and-write over the power-up sequence in
   `nv3007_init.{h,cpp}`, which is a table and nothing else. The adapter already
@@ -66,7 +76,10 @@ Simulator (no hardware; use this to verify UI changes):
   panels, so do not use `lv_display_set_rotation`.
 - The board's own firmware answers with the same shape in its `src/wire/`
   (`frame`, `dispatch`, one file a domain): a frame layer that knows no
-  message, a dispatcher that knows every arm, and handlers that know one.
+  message, a dispatcher that knows every arm, and handlers that know one. The
+  two `frame` files are the same state machine; keep them that way, and keep
+  the one difference the coprocessor has on purpose: a zero-length payload is
+  dropped (`Drop::Length`) because an idle line reads as zeroes.
 - `main/ui/model.h` `Model` is the seam for the `ThetaGP.PB` protocol, which is
   **not wired in yet**. Protocol code should call the `Menu::set*` / navigation
   functions rather than touch widgets; a setter that really changes a value
@@ -139,7 +152,8 @@ Simulator (no hardware; use this to verify UI changes):
     To compare a refactor, build the same program against another commit
     (`git worktree add`) and diff the two outputs: identical output is the
     claim that the picture did not change;
-  - `simulate/build/frame_test` checks the link's framing: a payload written
-    and read back, and the frames that must be refused.
+  - `simulate/build/frame_test` checks the wire: a payload written and read
+    back at every length the prefix changes at, the queue's order and its
+    overflow, the idle half frame, and each reason a frame is dropped.
 - Commit history follows Conventional Commits (`feat:`, `build:`, `refactor:`,
   `docs:`, `chore:`, with optional scopes).

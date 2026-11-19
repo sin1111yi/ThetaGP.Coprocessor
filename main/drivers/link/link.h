@@ -19,22 +19,20 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-// The wire to the main board: a varint length, the payload, and the payload's
-// byte sum in the low 16 bits, little endian, carried over one UART. The layer
-// knows nothing of messages: bytes go up, bytes come down, and the ready line
-// says the decoder is listening.
+// The wire to the main board: one UART, the frames the wire layer assembles,
+// and the ready line the board waits on. The bytes are read on this task; the
+// frames are taken on the task that owns the widgets, so the two cores meet in
+// the frame queue and never in a call.
+//
+// A driver and nothing else: no message is named here, and no widget.
 
 #pragma once
 
 #include <cstdint>
 
-#include "drivers/link/frame.h"
+#include "wire/frame.h"
 
 namespace ThetaGP::Drivers::Link {
-
-// One payload, as it arrives from the main board.
-using FrameHandler = void (*)(const uint8_t *payload, uint16_t length,
-                              void *context);
 
 class Link {
 public:
@@ -53,29 +51,24 @@ public:
   // still carrying the previous one.
   bool send(const uint8_t *payload, uint16_t length);
 
-  void setHandler(FrameHandler handler, void *context = nullptr) {
-    _handler = handler;
-    _context = context;
-  }
+  // Takes the oldest whole frame to arrive, on the task above. The bytes are
+  // that slot's until it is handed out again.
+  bool take(Wire::Frame::Payload &out);
 
-  // Whole frames taken and refused since boot, as the status page reads them.
-  uint32_t received() const { return _parser.received(); }
-  uint32_t refused() const { return _parser.refused(); }
+  // Frames taken and refused since boot, as the status page reads them.
+  uint32_t received(void) const { return _taken; }
+  uint32_t refused(void) const;
 
   // True while frames are still arriving: a beat that stopped a second and a
   // half ago is a link that is down, not one that is quiet.
-  bool alive() const;
+  bool alive(void) const;
 
   // True once a frame has arrived at all: the main board has answered, and the
   // panel is no longer alone on the wire.
-  bool heard() const { return _parser.received() != 0; }
+  bool heard(void) const { return _taken != 0; }
 
-  static constexpr uint16_t PAYLOAD_MAX = Frame::PAYLOAD_MAX;
-  static constexpr uint16_t FRAME_MAX = Frame::FRAME_MAX;
-
-  // Frames the parser has assembled, called from the link task: the bytes are
-  // that frame's, and are only valid for the call.
-  void deliver(const uint8_t *payload, uint16_t length);
+  static constexpr uint16_t PAYLOAD_MAX = Wire::Frame::PAYLOAD_MAX;
+  static constexpr uint16_t FRAME_MAX = Wire::Frame::FRAME_MAX;
 
 private:
   Link() = default;
@@ -83,12 +76,9 @@ private:
   static void taskEntry(void *argument);
   void run();
 
-  FrameHandler _handler = nullptr;
-  void *_context = nullptr;
+  Wire::Frame _frame;
 
-  // The bytes of the wire, one frame at a time.
-  Frame::Parser _parser;
-
+  volatile uint32_t _taken = 0;
   volatile uint32_t _lastFrameMs = 0;
   volatile uint32_t _bytesRead = 0;
   bool _readyLine = false;

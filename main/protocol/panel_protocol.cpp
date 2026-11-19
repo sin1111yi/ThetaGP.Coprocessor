@@ -161,8 +161,8 @@ void PanelProtocol::beat(bool now) {
   }
 }
 
-void PanelProtocol::deliver(const uint8_t *payload, uint16_t length) {
-  (void)Dispatch::take(payload, length, _inbox);
+void PanelProtocol::feed(const uint8_t *payload, uint16_t length) {
+  (void)Wire::Dispatch::take(payload, length, _inbox);
 }
 
 void PanelProtocol::apply() {
@@ -185,9 +185,8 @@ void PanelProtocol::apply() {
   }
 
   bool moved = false;
-  while (_inbox.navTail != _inbox.navHead) {
-    const uint8_t action = _inbox.nav[_inbox.navTail];
-    _inbox.navTail = (uint8_t)((_inbox.navTail + 1) % Inbox::kNavMax);
+  for (uint8_t at = 0; at < _inbox.navCount; ++at) {
+    const uint8_t action = _inbox.nav[at];
 
     // The six keys, as the menu knows them: the four directions travel the
     // column, and the two ends of a choice take and refuse it.
@@ -211,6 +210,7 @@ void PanelProtocol::apply() {
     }
     moved = true;
   }
+  _inbox.navCount = 0;
 
   // A step is on screen now: one beat leaves at once, so the board reads what
   // it did instead of waiting for the next one.

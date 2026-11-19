@@ -136,18 +136,25 @@ refactor is shown not to change the panel. To compare against another commit,
 main/
   main.cpp            app_main, only calls Coprocessor
   app/                boot order, the protocol loop, the board button
-  protocol/           Link.proto messages: dispatch (read + route), session
+  wire/               frame (framing + a queue of whole frames), dispatch
+                      (read one payload, route it into an inbox)
+  protocol/           Link.proto session: hello, beat, apply; the transport and
+                      panel seams the app fills in
   ui/                 model, menu, splash, theme, spring, pages/, profile/,
                       widgets/, assets/
   drivers/            display/ (esp_lcd panel, its sequence, the adapter),
-                      input/ (the board button), link/ (UART + framing)
+                      input/ (the board button), link/ (the UART and its task)
 ```
 
-Dependencies only point down: `app → protocol → ui`, and `app → drivers`.
-`ui/` includes neither `protocol/` nor `drivers/`, and `protocol/` names no
-driver — the app hands it the wire and the panel at `init`. `AGENTS.md` has the
-detail, and `docs/restructure-plan.md` (a local note, not tracked) records how
-the tree got here.
+Dependencies only point down: `app → protocol → wire`, `app → protocol → ui`,
+and `app → drivers`. `ui/` includes neither `protocol/` nor `drivers/`, and
+neither `protocol/` nor `wire/` names a driver — the app hands the session the
+wire and the panel at `init`.
+
+Both cores are used: the LVGL task on core 0 with the app loop, the link task
+reading its UART on core 1, and the frame queue as the only thing between them.
+`AGENTS.md` has the detail, and `docs/restructure-plan.md` (a local note, not
+tracked) records how the tree got here.
 
 ## Licence
 
