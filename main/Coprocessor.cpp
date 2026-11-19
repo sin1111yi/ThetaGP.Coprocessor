@@ -34,8 +34,9 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "drivers/display/nv3007_lcd.h"
+#include "drivers/input/button.h"
 #include "drivers/link/link.h"
-#include "drivers/link/panel_protocol.h"
+#include "protocol/panel_protocol.h"
 #include "ui/menu.h"
 
 namespace ThetaGP {
@@ -95,6 +96,8 @@ void Coprocessor::run() {
   ESP_ERROR_CHECK(esp_timer_create(&args, &tick));
   ESP_ERROR_CHECK(esp_timer_start_periodic(tick, 10 * 1000));
 
+  Drivers::Input::Button::getInstance().init();
+
   // The panel says whether the main board is answering. The link is read here,
   // on the task that owns the widgets, and only a change reaches the menu.
   bool linked = false;
@@ -131,6 +134,21 @@ void Coprocessor::run() {
         Drivers::Link::PanelProtocol::getInstance().init();
         esp_lv_adapter_unlock();
       }
+    }
+
+    // The board button walks the menu until the link's own buttons arrive: a
+    // short press moves the mark, a long one opens. The line is read freely;
+    // the menu is touched only under the adapter's lock.
+    const Drivers::Input::Press press =
+        Drivers::Input::Button::getInstance().poll(lv_tick_get());
+    if (press != Drivers::Input::Press::None &&
+        esp_lv_adapter_lock(-1) == ESP_OK) {
+      if (press == Drivers::Input::Press::Long) {
+        Ui::Menu::enter();
+      } else {
+        Ui::Menu::next();
+      }
+      esp_lv_adapter_unlock();
     }
 
     if (started) {

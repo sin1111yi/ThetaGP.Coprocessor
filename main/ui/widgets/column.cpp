@@ -19,7 +19,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "ui/column.h"
+#include "ui/widgets/column.h"
 
 #include "ui/spring.h"
 #include "ui/theme.h"

@@ -19,12 +19,12 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "ui/profile.h"
+#include "ui/profile/profile.h"
 
 #include <cmath>
 #include <cstdio>
 
-#include "ui/column.h"
+#include "ui/widgets/column.h"
 #include "ui/menu.h"
 #include "ui/spring.h"
 #include "ui/theme.h"

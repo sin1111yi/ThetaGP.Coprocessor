@@ -86,12 +86,12 @@ endif()
 
 add_executable(simulate
   main_sim.cpp
+  ../main/ui/assets/logo.c
   ../main/ui/menu.cpp
-  ../main/ui/column.cpp
+  ../main/ui/pages/home.cpp
+  ../main/ui/profile/profile.cpp
   ../main/ui/spring.cpp
-  ../main/ui/profile.cpp
-  ../main/ui/home.cpp
-  ../main/ui/logo.c
+  ../main/ui/widgets/column.cpp
 )
 
 # The board's GPIO calls are answered by the stubs under include/, and the
@@ -101,6 +101,28 @@ target_include_directories(simulate PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../main
 )
+
+# The same sources without the window: one hash a frame, for comparing two
+# trees on the picture they draw rather than on how they are written.
+add_executable(compare
+  compare.cpp
+  ../main/ui/assets/logo.c
+  ../main/ui/menu.cpp
+  ../main/ui/pages/home.cpp
+  ../main/ui/profile/profile.cpp
+  ../main/ui/spring.cpp
+  ../main/ui/widgets/column.cpp
+)
+target_include_directories(compare PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+target_compile_definitions(compare PRIVATE
+  LV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/lv_conf.h")
+target_link_libraries(compare PRIVATE lvgl)
+if(NOT MSVC)
+  target_link_libraries(compare PRIVATE m)
+endif()
 
 target_compile_definitions(lvgl PUBLIC
   LV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/lv_conf.h")

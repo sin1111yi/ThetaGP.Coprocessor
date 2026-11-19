@@ -19,7 +19,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "ui/home.h"
+#include "ui/pages/home.h"
 
 #include <cmath>
 #include <cstdio>
@@ -27,7 +27,7 @@
 #include <cstring>
 
 #include "build_info.h"
-#include "ui/column.h"
+#include "ui/widgets/column.h"
 #include "ui/menu.h"
 #include "ui/spring.h"
 #include "ui/theme.h"

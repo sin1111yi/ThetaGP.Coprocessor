@@ -28,7 +28,7 @@
 
 #include <cstdint>
 
-#include "link.h"
+#include "drivers/link/link.h"
 
 namespace ThetaGP::Drivers::Link {
 

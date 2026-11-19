@@ -19,7 +19,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "drivers/link/panel_protocol.h"
+#include "protocol/panel_protocol.h"
 
 #include <cstdio>
 #include <cstring>

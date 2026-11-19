@@ -25,13 +25,10 @@
 #include <cstring>
 
 #include "build_info.h"
-#include "conf/board.h"
-#include "ui/home.h"
-#include "ui/logo.h"
-#include "ui/profile.h"
+#include "ui/pages/home.h"
+#include "ui/assets/logo.h"
+#include "ui/profile/profile.h"
 #include "ui/theme.h"
-
-#include "driver/gpio.h"
 
 namespace ThetaGP::Ui {
 
@@ -457,27 +454,6 @@ static void splash(void) {
   lv_anim_start(&out);
 }
 
-// ── the board button, until the link's own buttons arrive ──
-
-static void button_timer(lv_timer_t *timer) {
-  (void)timer;
-  static bool down = false;
-  static uint32_t pressed_at = 0;
-
-  const bool held = gpio_get_level(PIN_BUTTON) == 0;
-  const uint32_t now = lv_tick_get();
-  if (held && !down) {
-    pressed_at = now;
-  } else if (!held && down) {
-    if (now - pressed_at >= 500) {
-      enter();
-    } else {
-      next();
-    }
-  }
-  down = held;
-}
-
 void init() {
   lv_obj_t *screen = lv_screen_active();
   lv_obj_set_style_bg_color(screen, colour(Theme::BG), 0);
@@ -489,13 +465,6 @@ void init() {
   lv_obj_remove_style_all(s_root);
   lv_obj_set_pos(s_root, 4, 13);
   lv_obj_set_size(s_root, 420, 140);
-
-  gpio_config_t button = {};
-  button.pin_bit_mask = 1ULL << PIN_BUTTON;
-  button.mode = GPIO_MODE_INPUT;
-  button.pull_up_en = GPIO_PULLUP_ENABLE;
-  gpio_config(&button);
-  lv_timer_create(button_timer, 20, NULL);
 
   show(&PAGE_MAIN);
   splash();
