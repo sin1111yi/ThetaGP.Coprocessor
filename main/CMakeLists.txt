@@ -19,7 +19,7 @@
 
 idf_component_register(
     SRCS "main.cpp"
-         "Coprocessor.cpp"
+         "app/Coprocessor.cpp"
          "drivers/display/lvgl_display.cpp"
          "drivers/display/nv3007_init.cpp"
          "drivers/display/nv3007_lcd.cpp"

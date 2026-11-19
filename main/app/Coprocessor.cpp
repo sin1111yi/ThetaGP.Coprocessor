@@ -19,7 +19,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "Coprocessor.h"
+#include "app/Coprocessor.h"
 
 #include <cstdio>
 
