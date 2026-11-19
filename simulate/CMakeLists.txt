@@ -124,6 +124,16 @@ if(NOT MSVC)
   target_link_libraries(compare PRIVATE m)
 endif()
 
+# The wire's framing, with no board under it: a payload written and read back,
+# and the frames that must not be taken.
+add_executable(frame_test
+  frame_test.cpp
+  ../main/drivers/link/frame.cpp
+)
+target_include_directories(frame_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
 target_compile_definitions(lvgl PUBLIC
   LV_CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/lv_conf.h")
 target_compile_definitions(simulate PRIVATE

@@ -24,6 +24,7 @@ idf_component_register(
          "drivers/display/nv3007_init.cpp"
          "drivers/display/nv3007_lcd.cpp"
          "drivers/input/button.cpp"
+         "drivers/link/frame.cpp"
          "drivers/link/link.cpp"
          "protocol/panel_protocol.cpp"
          "pb/Link.pb.c"

@@ -28,6 +28,8 @@
 
 #include <cstdint>
 
+#include "drivers/link/frame.h"
+
 namespace ThetaGP::Drivers::Link {
 
 // One payload, as it arrives from the main board.
@@ -57,8 +59,8 @@ public:
   }
 
   // Whole frames taken and refused since boot, as the status page reads them.
-  uint32_t received() const { return _received; }
-  uint32_t refused() const { return _refused; }
+  uint32_t received() const { return _parser.received(); }
+  uint32_t refused() const { return _parser.refused(); }
 
   // True while frames are still arriving: a beat that stopped a second and a
   // half ago is a link that is down, not one that is quiet.
@@ -66,10 +68,10 @@ public:
 
   // True once a frame has arrived at all: the main board has answered, and the
   // panel is no longer alone on the wire.
-  bool heard() const { return _received != 0; }
+  bool heard() const { return _parser.received() != 0; }
 
-  static constexpr uint16_t PAYLOAD_MAX = 1024;
-  static constexpr uint16_t FRAME_MAX = 2 + PAYLOAD_MAX + 2;
+  static constexpr uint16_t PAYLOAD_MAX = Frame::PAYLOAD_MAX;
+  static constexpr uint16_t FRAME_MAX = Frame::FRAME_MAX;
 
   // Frames the parser has assembled, called from the link task: the bytes are
   // that frame's, and are only valid for the call.
@@ -80,25 +82,13 @@ private:
 
   static void taskEntry(void *argument);
   void run();
-  void parserReset();
-  bool parserFeed(uint8_t byte);
 
   FrameHandler _handler = nullptr;
   void *_context = nullptr;
 
-  // The payload being assembled, and where in it the parser is.
-  uint8_t _payload[PAYLOAD_MAX] = {};
-  uint16_t _length = 0;
-  uint16_t _completed = 0;
-  uint16_t _filled = 0;
-  uint16_t _sum = 0;
-  uint8_t _prefixBytes = 0;
-  uint8_t _checksumLow = 0;
-  uint8_t _checksumBytes = 0;
-  uint8_t _state = 0;
+  // The bytes of the wire, one frame at a time.
+  Frame::Parser _parser;
 
-  volatile uint32_t _received = 0;
-  volatile uint32_t _refused = 0;
   volatile uint32_t _lastFrameMs = 0;
   volatile uint32_t _bytesRead = 0;
   bool _readyLine = false;
