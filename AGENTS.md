@@ -32,11 +32,16 @@ Simulator (no hardware; use this to verify UI changes):
 ## Architecture
 
 - Layout, and the only way a layer may look: `app/` → `protocol/` → `ui/`,
-  with `app/` → `drivers/`. `ui/` includes neither `protocol/` nor `drivers/`;
-  `protocol/` sits above both because it reads the menu and reports the panel.
+  with `app/` → `drivers/`. `ui/` includes neither `protocol/` nor `drivers/`,
+  and `protocol/` names no driver at all: the app hands it a `Transport`
+  (send, heard, refused) and a `Panel` (width, height, backlight) at `init`.
   - `main/app/` — `Coprocessor.{h,cpp}`: boot order, the protocol loop, the
     board button turned into menu actions.
-  - `main/protocol/` — `panel_protocol.{h,cpp}`, the messages of `ThetaGP.PB`.
+  - `main/protocol/` — `dispatch.{h,cpp}` reads one payload and leaves what it
+    asked for in an `Inbox` (the one place a new message kind is added), and
+    `panel_protocol.{h,cpp}` is the session: hello, beat, shape, and applying
+    an inbox on the task that owns the widgets. `transport.h` is the seam the
+    app fills in.
   - `main/ui/` — `model.{h,cpp}` (what the protocol writes and the pages
     read), `menu.{h,cpp}` (page stack and navigation), `splash.{h,cpp}`,
     `theme.h`, `spring.{h,cpp}`, `pages/` (one file a page plus `pages.h`),
@@ -59,6 +64,9 @@ Simulator (no hardware; use this to verify UI changes):
   mounted sideways; MADCTL (`0x36 = 0x60`, last step of the init sequence)
   turns it so the UI surface is 428x156. The adapter does not rotate SPI
   panels, so do not use `lv_display_set_rotation`.
+- The board's own firmware answers with the same shape in its `src/wire/`
+  (`frame`, `dispatch`, one file a domain): a frame layer that knows no
+  message, a dispatcher that knows every arm, and handlers that know one.
 - `main/ui/model.h` `Model` is the seam for the `ThetaGP.PB` protocol, which is
   **not wired in yet**. Protocol code should call the `Menu::set*` / navigation
   functions rather than touch widgets; a setter that really changes a value

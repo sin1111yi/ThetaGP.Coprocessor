@@ -33,6 +33,7 @@
 #include "esp_lv_adapter.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "conf/board.h"
 #include "drivers/display/nv3007_lcd.h"
 #include "drivers/input/button.h"
 #include "drivers/link/link.h"
@@ -40,6 +41,54 @@
 #include "ui/menu.h"
 
 namespace ThetaGP {
+
+namespace {
+
+// The protocol speaks over the link and reports the panel; this file is what
+// knows the board, so the wiring is here and the message layer names no driver.
+
+bool sendOnLink(const uint8_t *payload, uint16_t length, void *context) {
+  (void)context;
+  return Drivers::Link::Link::getInstance().send(payload, length);
+}
+
+bool heardOnLink(void *context) {
+  (void)context;
+  return Drivers::Link::Link::getInstance().heard();
+}
+
+uint32_t refusedOnLink(void *context) {
+  (void)context;
+  return Drivers::Link::Link::getInstance().refused();
+}
+
+// The surface the menu draws on: the panel is mounted on its side, so the
+// wider number is the width.
+uint16_t panelWidth(void *context) {
+  (void)context;
+  return LCD_V_RES;
+}
+
+uint16_t panelHeight(void *context) {
+  (void)context;
+  return LCD_H_RES;
+}
+
+bool backlightOn(void *context) {
+  (void)context;
+  return Drivers::Display::Nv3007Lcd::getInstance().backlightOn();
+}
+
+// What the link hands a payload to.
+void onFrame(const uint8_t *payload, uint16_t length, void *context) {
+  static_cast<Protocol::PanelProtocol *>(context)->deliver(payload, length);
+}
+
+const Protocol::Transport kTransport = {sendOnLink, heardOnLink, refusedOnLink,
+                                        nullptr};
+const Protocol::Panel kPanel = {panelWidth, panelHeight, backlightOn, nullptr};
+
+} // namespace
 
 void Coprocessor::setup() {
   // The display brings the panel up and starts the LVGL task the adapter owns.
@@ -126,12 +175,16 @@ void Coprocessor::run() {
     if (!started && introSeen &&
         (uint32_t)((uint32_t)(esp_timer_get_time() / 1000) - introAt) >= 1000U) {
       started = true;
-      Drivers::Link::Link::getInstance().init();
-      Drivers::Link::Link::getInstance().markReady();
+      Drivers::Link::Link &link = Drivers::Link::Link::getInstance();
+      link.init();
+      // A frame the link assembles is the protocol's: the handler goes in
+      // before the board is told the decoder is listening.
+      link.setHandler(onFrame, &Protocol::PanelProtocol::getInstance());
+      link.markReady();
       // The schema, on top of the bytes: the first hello names this panel, and
       // the beat it sends reads the menu, so it is sent under the same lock.
       if (esp_lv_adapter_lock(-1) == ESP_OK) {
-        Protocol::PanelProtocol::getInstance().init();
+        Protocol::PanelProtocol::getInstance().init(kTransport, kPanel);
         esp_lv_adapter_unlock();
       }
     }

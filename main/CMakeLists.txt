@@ -26,6 +26,7 @@ idf_component_register(
          "drivers/input/button.cpp"
          "drivers/link/frame.cpp"
          "drivers/link/link.cpp"
+         "protocol/dispatch.cpp"
          "protocol/panel_protocol.cpp"
          "pb/Link.pb.c"
          "${THETAGP_NANOPB_DIR}/pb_common.c"

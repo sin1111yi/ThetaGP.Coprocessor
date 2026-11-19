@@ -27,8 +27,6 @@
 #include "esp_timer.h"
 
 #include "build_info.h"
-#include "conf/board.h"
-#include "drivers/display/nv3007_lcd.h"
 #include "ui/menu.h"
 
 #include "Link.pb.h"
@@ -54,6 +52,12 @@ uint32_t nowSeconds() {
   return static_cast<uint32_t>(esp_timer_get_time() / 1000000);
 }
 
+// A fixed-width field out of a decoded message, which arrives as a C string.
+void copyField(char *out, size_t size, const char *field) {
+  std::strncpy(out, field, size - 1);
+  out[size - 1] = '\0';
+}
+
 // The page ids of Link.proto and the ones the menu knows are the same numbers:
 // the beat the panel sends and the state a host reads name a page the same way.
 static_assert((uint8_t)Ui::Menu::PageId::Menu == ThetaGP_Link_Page_PAGE_MENU,
@@ -73,30 +77,12 @@ static_assert((uint8_t)Ui::Menu::PageId::Profiles ==
 static_assert((uint8_t)Ui::Menu::PageId::About == ThetaGP_Link_Page_PAGE_ABOUT,
               "the about page is not the schema's");
 
-// One message, in the frame the transport writes.
-bool send(const ThetaGP_Link_Message &message) {
-  uint8_t payload[kPayloadMax] = {};
-  pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
-  if (!pb_encode(&stream, ThetaGP_Link_Message_fields, &message)) {
-    printf("link: encode refused: %s\n", PB_GET_ERROR(&stream));
-    return false;
-  }
-  return Drivers::Link::Link::getInstance().send(payload,
-                                  static_cast<uint16_t>(stream.bytes_written));
-}
-
-// A fixed-width field out of a decoded message, which arrives as a C string.
-void copyField(char *out, size_t size, const char *field) {
-  std::strncpy(out, field, size - 1);
-  out[size - 1] = '\0';
-}
-
 } // namespace
 
-void PanelProtocol::init() {
-  Drivers::Link::Link::getInstance().setHandler(onFrame, this);
+void PanelProtocol::init(const Transport &transport, const Panel &panel) {
+  _transport = transport;
+  _panel = panel;
   sendHello();
-  _greeted = true;
   _lastHelloMs = nowMs();
   beat(true);
 }
@@ -105,7 +91,7 @@ void PanelProtocol::tick() {
   apply();
 
   const uint32_t now = nowMs();
-  const bool heard = Drivers::Link::Link::getInstance().heard();
+  const bool heard = _transport.heard(_transport.context);
 
   // A board that has answered nothing is greeted once a second; one that has
   // is greeted every ten, so a board that reboots is found again.
@@ -120,6 +106,17 @@ void PanelProtocol::tick() {
   }
 }
 
+bool PanelProtocol::send(const ThetaGP_Link_Message &message) {
+  uint8_t payload[kPayloadMax] = {};
+  pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+  if (!pb_encode(&stream, ThetaGP_Link_Message_fields, &message)) {
+    printf("link: encode refused: %s\n", PB_GET_ERROR(&stream));
+    return false;
+  }
+  return _transport.send(payload, static_cast<uint16_t>(stream.bytes_written),
+                         _transport.context);
+}
+
 void PanelProtocol::sendHello() {
   ThetaGP_Link_Message message = ThetaGP_Link_Message_init_zero;
   message.which_kind = ThetaGP_Link_Message_hello_tag;
@@ -128,10 +125,9 @@ void PanelProtocol::sendHello() {
             BuildInfo::NAME);
   copyField(message.kind.hello.release, sizeof message.kind.hello.release,
             BuildInfo::VERSION);
-  // The surface as it is mounted: the panel is on its side, so the wider
-  // number is the width the menu draws.
-  message.kind.hello.width = LCD_V_RES;
-  message.kind.hello.height = LCD_H_RES;
+  // The surface as it is mounted: the panel is on its side.
+  message.kind.hello.width = _panel.width(_panel.context);
+  message.kind.hello.height = _panel.height(_panel.context);
   (void)send(message);
 }
 
@@ -139,10 +135,9 @@ uint32_t PanelProtocol::shape() const {
   const Ui::Menu::Screen screen = Ui::Menu::screen();
   uint32_t shape = (uint32_t)screen.page;
   shape = shape << 8 | screen.item;
-  shape = shape << 1 | (Drivers::Link::Link::getInstance().heard() ? 1u : 0u);
+  shape = shape << 1 | (_transport.heard(_transport.context) ? 1u : 0u);
   shape = shape << 1 | (Ui::Menu::introDone() ? 1u : 0u);
-  shape = shape << 1 |
-          (Drivers::Display::Nv3007Lcd::getInstance().backlightOn() ? 1u : 0u);
+  shape = shape << 1 | (_panel.backlightOn(_panel.context) ? 1u : 0u);
   return shape;
 }
 
@@ -155,11 +150,10 @@ void PanelProtocol::beat(bool now) {
   message.kind.beat.uptime_s = nowSeconds();
   message.kind.beat.page = (uint32_t)screen.page;
   message.kind.beat.item = screen.item;
-  message.kind.beat.link = Drivers::Link::Link::getInstance().heard();
-  message.kind.beat.backlight =
-      Drivers::Display::Nv3007Lcd::getInstance().backlightOn();
+  message.kind.beat.link = _transport.heard(_transport.context);
+  message.kind.beat.backlight = _panel.backlightOn(_panel.context);
   message.kind.beat.intro_done = Ui::Menu::introDone();
-  message.kind.beat.dropped = Drivers::Link::Link::getInstance().refused();
+  message.kind.beat.dropped = _transport.refused(_transport.context);
 
   if (send(message)) {
     _lastBeatMs = nowMs();
@@ -167,75 +161,33 @@ void PanelProtocol::beat(bool now) {
   }
 }
 
-void PanelProtocol::onFrame(const uint8_t *payload, uint16_t length,
-                            void *context) {
-  static_cast<PanelProtocol *>(context)->handle(payload, length);
-}
-
-void PanelProtocol::handle(const uint8_t *payload, uint16_t length) {
-  ThetaGP_Link_Message message = ThetaGP_Link_Message_init_zero;
-  pb_istream_t stream = pb_istream_from_buffer(payload, length);
-  if (!pb_decode(&stream, ThetaGP_Link_Message_fields, &message)) {
-    // Not one of ours: a frame from a build that speaks another schema, or
-    // noise the checksum let through. The transport counts it; nothing here
-    // has a use for it.
-    return;
-  }
-
-  switch (message.which_kind) {
-  case ThetaGP_Link_Message_board_tag:
-    copyField(_boardId, sizeof _boardId, message.kind.board.board_id);
-    copyField(_boardRelease, sizeof _boardRelease, message.kind.board.release);
-    _boardPending = true;
-    break;
-
-  case ThetaGP_Link_Message_state_tag:
-    _stateHz = message.kind.state.report_hz;
-    _stateId = message.kind.state.profile_id;
-    _stateCount = message.kind.state.profile_count;
-    copyField(_stateName, sizeof _stateName, message.kind.state.profile_name);
-    _statePending = true;
-    break;
-
-  case ThetaGP_Link_Message_nav_tag: {
-    const uint8_t next = (uint8_t)((_navHead + 1) % kNavQueue);
-    if (next == _navTail) {
-      // The queue is full: the step is dropped rather than overwriting the one
-      // that is still to be applied.
-      return;
-    }
-    _navAction[_navHead] = (uint8_t)message.kind.nav.action;
-    _navHead = next;
-    break;
-  }
-
-  default:
-    break;
-  }
+void PanelProtocol::deliver(const uint8_t *payload, uint16_t length) {
+  (void)Dispatch::take(payload, length, _inbox);
 }
 
 void PanelProtocol::apply() {
-  if (_boardPending) {
-    _boardPending = false;
+  if (_inbox.boardPending) {
+    _inbox.boardPending = false;
     // The board is named again every couple of seconds, and only a name that
     // changed is worth a line.
-    if (std::strcmp(_boardId, Ui::model().peer_id) != 0 ||
-        std::strcmp(_boardRelease, Ui::model().peer_version) != 0) {
-      printf("link: board %s %s\n", _boardId, _boardRelease);
+    if (std::strcmp(_inbox.boardId, Ui::model().peer_id) != 0 ||
+        std::strcmp(_inbox.release, Ui::model().peer_version) != 0) {
+      printf("link: board %s %s\n", _inbox.boardId, _inbox.release);
     }
-    Ui::Menu::setPeer(_boardId, _boardRelease);
+    Ui::Menu::setPeer(_inbox.boardId, _inbox.release);
   }
 
-  if (_statePending) {
-    _statePending = false;
-    Ui::Menu::setReportHz(_stateHz);
-    Ui::Menu::setProfile(_stateId, _stateCount, _stateName);
+  if (_inbox.statePending) {
+    _inbox.statePending = false;
+    Ui::Menu::setReportHz(_inbox.hz);
+    Ui::Menu::setProfile(_inbox.profileId, _inbox.profileCount,
+                         _inbox.profileName);
   }
 
   bool moved = false;
-  while (_navTail != _navHead) {
-    const uint8_t action = _navAction[_navTail];
-    _navTail = (uint8_t)((_navTail + 1) % kNavQueue);
+  while (_inbox.navTail != _inbox.navHead) {
+    const uint8_t action = _inbox.nav[_inbox.navTail];
+    _inbox.navTail = (uint8_t)((_inbox.navTail + 1) % Inbox::kNavMax);
 
     // The six keys, as the menu knows them: the four directions travel the
     // column, and the two ends of a choice take and refuse it.

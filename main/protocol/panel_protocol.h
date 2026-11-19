@@ -19,16 +19,19 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-// What the panel says to the main board, and what it does with what comes
-// back: the messages of Link.proto on top of the bytes the transport carries.
-// The two greetings name the boards, the main board's state fills the pages,
-// the panel's beat says what is on screen, and a nav step moves it.
+// The panel's side of Link.proto: it greets the board, says what the screen
+// shows on its cadence, and applies what the board asks for on the task that
+// owns the widgets. What it speaks over and what it reports are handed in, so
+// this layer names no driver. The arms themselves are read in dispatch.cpp.
 
 #pragma once
 
 #include <cstdint>
 
-#include "drivers/link/link.h"
+#include "Link.pb.h"
+
+#include "protocol/dispatch.h"
+#include "protocol/transport.h"
 
 namespace ThetaGP::Protocol {
 
@@ -39,22 +42,26 @@ public:
     return instance;
   }
 
-  // Binds the transport's handler and says hello for the first time.
-  void init();
+  // Takes what it speaks over and what it reports, and says hello for the
+  // first time.
+  void init(const Transport &transport, const Panel &panel);
 
   // Says hello while the board has not answered, beats on its cadence, and
   // beats at once when what the screen shows has changed.
   void tick();
 
+  // One frame the transport carried in, on the transport's task.
+  void deliver(const uint8_t *payload, uint16_t length);
+
 private:
   PanelProtocol() = default;
 
-  static void onFrame(const uint8_t *payload, uint16_t length, void *context);
-  void handle(const uint8_t *payload, uint16_t length);
-
-  // What the link carried is left for `tick`: the frame arrives on the link's
-  // own task, and only the task that drives LVGL touches the widgets.
+  // What the last frames asked for: applied on the task that owns the widgets,
+  // and only what is still pending when `tick` runs.
   void apply();
+
+  // One message, encoded into the payload the transport carries.
+  bool send(const ThetaGP_Link_Message &message);
 
   void sendHello();
   void beat(bool now);
@@ -63,23 +70,10 @@ private:
   // nothing else.
   uint32_t shape() const;
 
-  // What the last frame asked for, waiting for the task that owns the widgets.
-  volatile bool _boardPending = false;
-  char _boardId[21] = {};
-  char _boardRelease[21] = {};
+  Transport _transport;
+  Panel _panel;
+  Inbox _inbox;
 
-  volatile bool _statePending = false;
-  uint32_t _stateHz = 0;
-  uint32_t _stateId = 0;
-  uint32_t _stateCount = 0;
-  char _stateName[25] = {};
-
-  static constexpr uint8_t kNavQueue = 8;
-  uint8_t _navAction[kNavQueue] = {};
-  volatile uint8_t _navHead = 0;
-  volatile uint8_t _navTail = 0;
-
-  bool _greeted = false;
   uint32_t _lastHelloMs = 0;
   uint32_t _lastBeatMs = 0;
   uint32_t _lastShape = 0;
