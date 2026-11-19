@@ -152,9 +152,11 @@ neither `protocol/` nor `wire/` names a driver — the app hands the session the
 wire and the panel at `init`.
 
 Both cores are used: the LVGL task on core 0 with the app loop, the link task
-reading its UART on core 1, and the frame queue as the only thing between them.
-`AGENTS.md` has the detail, and `docs/restructure-plan.md` (a local note, not
-tracked) records how the tree got here.
+reading its UART on core 1, and the frame queue as the only thing between them
+— one producer, one consumer, each index written by one task, so it needs no
+lock. `AGENTS.md` has the invariants that keep it that way, and
+`docs/restructure-plan.md` (a local note, not tracked) records how the tree got
+here and why the two cores are split this way.
 
 ## Licence
 

@@ -62,9 +62,20 @@ Simulator (no hardware; use this to verify UI changes):
   by a 10 ms `esp_timer`, and touches widgets only under `esp_lv_adapter_lock`.
 - Both cores are used, and the split is by who owns what: the LVGL task is
   pinned to core 0 (`config.task_core_id`), the link task reads the UART on
-  core 1, and the app loop runs on core 0 with the widgets. The only thing
-  between them is `Wire::Frame`'s slot queue — a single producer and a single
-  consumer, each index written by one task, so no lock is needed on it.
+  core 1, and the app loop runs on core 0 with the widgets
+  (`ESP_MAIN_TASK_AFFINITY_CPU0`). The only thing between them is
+  `Wire::Frame`'s slot ring, and three invariants hold it together:
+  - one producer (`feed`/`tick` on the link task) and one consumer (`take` on
+    the app task); `_head` is written by the consumer alone and `_tail` by the
+    producer alone. A second producer needs a critical section first;
+  - the payload is written before `_tail` is released and read after it is
+    acquired, and one slot is left empty so full and empty are told apart;
+  - the queue never blocks: full is `drop(Drop::NoRoom)`, because the link task
+    may not wait on the widgets — a stalled read overruns the UART's buffer.
+  `Frame::_dropped` is the one count read across the cores; it is advisory and
+  `volatile`. `Link`'s counters are not cross-core, and neither is the inbox:
+  `feed` and `apply` both run on the app task, and every widget call is inside
+  `esp_lv_adapter_lock`.
 - `main/drivers/display/nv3007_lcd.cpp` is a hand-written `esp_lcd` panel for
   the NV3007: window-and-write over the power-up sequence in
   `nv3007_init.{h,cpp}`, which is a table and nothing else. The adapter already
