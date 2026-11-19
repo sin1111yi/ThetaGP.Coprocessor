@@ -21,373 +21,102 @@
 
 #include "ui/profile/profile.h"
 
-#include <cmath>
-#include <cstdio>
-
-#include "ui/widgets/column.h"
-#include "ui/menu.h"
-#include "ui/spring.h"
-#include "ui/theme.h"
+#include "ui/profile/profile_data.h"
+#include "ui/profile/profile_menu.h"
+#include "ui/profile/profile_names.h"
+#include "ui/profile/profile_popup.h"
 
 namespace ThetaGP::Ui::Profile {
 
-using Theme::colour;
-using Theme::fill;
-using Theme::surface;
-using Theme::text;
+namespace {
 
-// The frame the menu already has: the names along the arc, the rail beside
-// them and the right column's four lines.
-#define CARD_W      156
-#define CARD_H      38
-#define CARD_PITCH  40
-#define CARD_CENTER 70
-#define CARD_CURVE  22
-#define CARD_VIS    1.35f
-#define CARD_MAX    8
-#define RAIL_X      176
-#define RAIL_Y      12
-#define RAIL_H      116
-#define THUMB_H     20
-#define RIGHT_X     200
-#define RIGHT_W     215
-#define RIGHT_ROWS  Cards::ROWS
-#define RIGHT_Y     ((140 - Cards::HEIGHT) / 2)
-
-// The window a setting is edited in: twenty-five pixels in from either side of
-// the page and ten from the top and the bottom, floating over the level that
-// is still behind it.
-#define POP_W       (420 - 2 * 25)
-#define POP_H       (140 - 2 * 10)
-#define POP_X       25
-#define POP_Y       10
-#define POP_PAD     12
-#define POP_NAME    26
-#define POP_ROW     30
-#define POP_STEP    22
-#define POP_VALUE   100
+constexpr int kRightRows = Data::kRows;
 
 enum Focus : uint8_t { kNames, kMenu, kSettings, kValue };
 
-// The lines the right column carries: the profile's own menu.
-#define MENU_ROWS 5
-#define MENU_OPTIONS 3
-static const char *const MENU_NAMES[MENU_ROWS] = {
-    "NAME", "ACTIVE", "MAPPING CONFIG", "OPTIONS", "LED EFFECTS"};
+Focus s_focus;
 
-// The settings the window lists, and the values each one offers. The values
-// are the build's own for now: writing one back is the link's work.
-#define SETTING_ROWS 4
-static const char *const SETTINGS[SETTING_ROWS] = {
-    "usb.input_mode", "led.bri", "map.socd", "usb.wired_report_hz"};
-static const char *const VALUES[SETTING_ROWS][4] = {
-    {"button", "gamepad", "", ""},
-    {"0", "25", "50", "100"},
-    {"off", "up", "down", ""},
-    {"1000", "2000", "4000", "8000"},
-};
-static uint8_t s_valuePick[SETTING_ROWS] = {0, 2, 0, 3};
-
-static Focus s_focus;
-
-// The names: where the column is, which card the mark is on, and the cards.
-static float s_scroll;
-static int s_name;
-static uint8_t s_nameCount;
-static lv_obj_t *s_cards[CARD_MAX];
-static lv_obj_t *s_titles[CARD_MAX];
-static lv_obj_t *s_thumb;
+// Which card the mark sits on.
+int s_name;
+uint8_t s_nameCount;
 
 // The right column: which line the mark is on, and how far the four-line
 // window has travelled into the five.
-static int s_row;
-static int s_offset;
+int s_row;
+int s_offset;
 
 // The window's own mark.
-static int s_setting;
-static int s_valueRow;
+int s_setting;
+int s_valueRow;
 
-static lv_obj_t *s_root;
-static Cards::Column s_right;
-
-static lv_obj_t *s_popup; // the window a setting is edited in
-static lv_obj_t *s_popupTitle;
-static lv_obj_t *s_popupRow[RIGHT_ROWS];
-static lv_obj_t *s_popupName[RIGHT_ROWS];
-static lv_obj_t *s_popupMark[RIGHT_ROWS];
-
-static void popupOpen(void);
-static void popupShow(void);
-
-// ── what the level carries ──
-
-// The list the store carries: the factory profile first, then one card per
-// profile, then the plus a profile is made from. The factory profile is the
-// build's own -- it is read and never written.
-static uint8_t profileCount(void) {
-  const uint8_t count = (uint8_t)model().profile_count;
-  return count > CARD_MAX - 2 ? (uint8_t)(CARD_MAX - 2) : count;
-}
-
-static bool isFactory(uint8_t index) { return index == 0; }
-
-static bool isPlus(uint8_t index) { return index == (uint8_t)(profileCount() + 1); }
-
-static uint8_t nameCount(void) { return (uint8_t)(profileCount() + 2); }
-
-static void nameLabel(uint8_t index, char *out, size_t cap) {
-  const Model &m = model();
-  if (isFactory(index)) {
-    snprintf(out, cap, "%s", "Default");
-    return;
-  }
-  if (isPlus(index)) {
-    snprintf(out, cap, "+");
-    return;
-  }
-  if (index == m.profile_id) {
-    snprintf(out, cap, "%s", m.profile_name);
-  } else {
-    snprintf(out, cap, "PROFILE %u", (unsigned)index);
-  }
-}
-
-static bool isActive(uint8_t index) {
-  return !isPlus(index) && index == model().profile_id;
-}
-
-// The profile the mark opened the menu for: the name of the card it sits on.
-static void profileName(char *out, size_t cap) {
-  nameLabel((uint8_t)s_name, out, cap);
-}
-
-// One line of the profile's menu: the name it carries and its value.
-static void menuLine(int row, char label[40], char value[40]) {
-  snprintf(label, 40, "%s", MENU_NAMES[row]);
-  if (isPlus((uint8_t)s_name)) {
-    // A card that stands for the profile not made yet has nothing to say.
-    snprintf(value, 40, "none");
-    return;
-  }
-  switch (row) {
-  case 0: {
-    char name[26] = {};
-    profileName(name, sizeof name);
-    snprintf(value, 40, "%s", name);
-    break;
-  }
-  case 1:
-    snprintf(value, 40, "%s", isActive((uint8_t)s_name) ? "active" : "stored");
-    break;
-  default:
-    snprintf(value, 40, "%s", isFactory((uint8_t)s_name) ? "default" : ">");
-    break;
-  }
-}
-
-// The four lines of the menu the window is showing, in order.
-static void menuBlock(char out[RIGHT_ROWS][2][40], int top) {
-  for (int i = 0; i < RIGHT_ROWS; ++i) {
-    const int row = top + i;
-    if (row >= 0 && row < MENU_ROWS) {
-      menuLine(row, out[i][0], out[i][1]);
-    } else {
-      out[i][0][0] = '\0';
-      out[i][1][0] = '\0';
-    }
-  }
-}
-
-// The four lines of a settings list, either the list of them or the values one
-// of them offers.
-static void listBlock(char out[RIGHT_ROWS][2][40], bool values, int top) {
-  for (int i = 0; i < RIGHT_ROWS; ++i) {
-    out[i][0][0] = '\0';
-    out[i][1][0] = '\0';
-    const int row = top + i;
-    if (!values) {
-      if (row < SETTING_ROWS) {
-        snprintf(out[i][0], 40, "%s", SETTINGS[row]);
-        snprintf(out[i][1], 40, "%s",
-                 VALUES[row][s_valuePick[row] < 4 ? s_valuePick[row] : 0]);
-      }
-    } else {
-      if (row < 4) {
-        snprintf(out[i][1], 40, "%s", VALUES[s_setting][row]);
-      }
-    }
-  }
-}
+lv_obj_t *s_root;
 
 // ── the right column ──
 
 // The top line of the menu the column shows: where the mark has scrolled it,
 // and no further than the line a window is open on.
-static int rightTop(void) {
+int rightTop(void) {
   int top = s_offset;
-  if (top > MENU_OPTIONS) {
-    top = MENU_OPTIONS;
+  if (top > Data::kMenuOptions) {
+    top = Data::kMenuOptions;
   }
   return top;
 }
 
-// The four lines the column carries: the profile's menu, from that line.
-static void rightBlock(char out[RIGHT_ROWS][2][40]) { menuBlock(out, rightTop()); }
-
 // Which of those lines the mark is on; -1 while it is on the names.
-static int rightMark(void) {
+int rightMark(void) {
   switch (s_focus) {
   case kMenu:
     return s_row - rightTop();
   case kSettings:
   case kValue:
     // The window is open on this line; the list it holds marks itself.
-    return MENU_OPTIONS - rightTop();
+    return Data::kMenuOptions - rightTop();
   default:
     return -1;
   }
 }
 
-// Fills the column for the window it is showing, the line the mark is on
-// drawn as the live one.
-static void rightFill(void) {
-  char block[RIGHT_ROWS][2][40] = {};
-  Cards::Line lines[RIGHT_ROWS] = {};
-  rightBlock(block);
-
-  for (int i = 0; i < RIGHT_ROWS; ++i) {
-    if (block[i][1][0] == '\0') {
-      continue;
-    }
-    lines[i].label = block[i][0];
-    lines[i].value = block[i][1];
-  }
-
-  s_right.fill(lines, RIGHT_ROWS, 0);
-  s_right.focus(rightMark());
-}
-
 // Puts the column at rest on the window the offset names.
-static void rightShow(void) {
-  rightFill();
-  s_right.rest();
-}
+void rightShow(void) { Menu::show((uint8_t)s_name, rightTop(), rightMark()); }
 
 // Slides the column one card, in the direction the mark moved.
-static void rightScroll(int step) {
-  rightFill();
-  s_right.slide(step);
+void rightScroll(int step) {
+  Menu::slide((uint8_t)s_name, rightTop(), rightMark(), step);
 }
 
-// ── the cards ──
+// ── the window ──
 
-// The names are a list with a first and a last card: the column does not
-// wrap, so the factory profile stays at the top and the plus at the bottom.
-static float rel(int i) { return (float)i - s_scroll; }
-
-static void cardLayout(void) {
-  int chosen = (int)std::floor(s_scroll + 0.5f);
-  chosen = ((chosen % s_nameCount) + s_nameCount) % s_nameCount;
-
-  for (int i = 0; i < s_nameCount; ++i) {
-    const float away = rel(i);
-    const float far = away < 0 ? -away : away;
-    lv_obj_t *card = s_cards[i];
-    if (far > CARD_VIS) {
-      lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
-      continue;
-    }
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_HIDDEN);
-
-    const int bend = (int)(CARD_CURVE * away * away);
-    lv_obj_set_pos(card, 6 - bend,
-                   CARD_CENTER - CARD_H / 2 + (int)(away * CARD_PITCH));
-    lv_obj_set_style_opa(card, (lv_opa_t)(255 - (int)(95 * far)), 0);
-
-    const bool on = i == chosen;
-    fill(card, on ? Theme::SURFACE_HI : Theme::SURFACE);
-    lv_obj_set_style_border_width(card, on ? 0 : 1, 0);
-    lv_obj_set_style_text_color(s_titles[i],
-                                colour(on ? Theme::TEXT : Theme::MUTED), 0);
-  }
-
-  if (s_thumb != NULL) {
-    float t = s_scroll / (float)(s_nameCount > 1 ? s_nameCount - 1 : 1);
-    if (t < 0) {
-      t = 0;
-    }
-    if (t > 1) {
-      t = 1;
-    }
-    lv_obj_set_y(s_thumb, (int)(t * (RAIL_H - THUMB_H)));
-  }
+void popupShow(void) {
+  Popup::show(s_focus == kValue, (uint8_t)s_setting, (uint8_t)s_valueRow);
 }
 
-// The spring's position is where the names are: the cards and the thumb are
-// laid out for it at every frame.
-static void cardScrolled(void *key, float value) {
-  (void)key;
-  s_scroll = value;
-  cardLayout();
-}
-
-static void cardArrived(void *key) {
-  (void)key;
-  int row = (int)std::floor(s_scroll + 0.5f);
-  if (row < 0) {
-    row = 0;
+// Opens the window on the settings of the profile the menu is showing.
+void openPopup(void) {
+  if (Popup::isOpen()) {
+    return;
   }
-  if (row >= s_nameCount) {
-    row = s_nameCount - 1;
-  }
-  s_name = row;
-  s_scroll = (float)s_name;
-  cardLayout();
+  Popup::open(s_root);
+  s_setting = 0;
+  s_focus = kSettings;
+  popupShow();
   rightShow();
 }
 
 // ── the level ──
 
+} // namespace
+
 void build(lv_obj_t *root) {
   s_root = root;
-  s_nameCount = nameCount();
+  s_nameCount = Data::nameCount();
   if (s_name >= s_nameCount) {
     s_name = 0;
   }
-  s_scroll = (float)s_name;
   s_offset = 0;
 
-  for (int i = 0; i < s_nameCount; ++i) {
-    lv_obj_t *card = surface(root, 0, 0, CARD_W, CARD_H);
-    lv_obj_set_style_radius(card, 8, 0);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-    char name[26] = {};
-    nameLabel((uint8_t)i, name, sizeof name);
-    s_titles[i] = text(card, name, &lv_font_montserrat_14, Theme::TEXT, 14, 11,
-                       CARD_W - 28);
-    s_cards[i] = card;
-  }
-
-  lv_obj_t *track = lv_obj_create(root);
-  lv_obj_remove_style_all(track);
-  lv_obj_set_pos(track, RAIL_X, RAIL_Y);
-  lv_obj_set_size(track, 2, RAIL_H);
-  lv_obj_set_style_radius(track, 1, 0);
-  fill(track, 0x3A2A1F);
-  lv_obj_remove_flag(track, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(track, LV_OBJ_FLAG_SCROLLABLE);
-
-  s_thumb = lv_obj_create(track);
-  lv_obj_remove_style_all(s_thumb);
-  lv_obj_set_pos(s_thumb, 0, 0);
-  lv_obj_set_size(s_thumb, 2, THUMB_H);
-  lv_obj_set_style_radius(s_thumb, 1, 0);
-  fill(s_thumb, 0xFDBA74);
-
-  // The column of cards the profile's menu is read in.
-  s_right.build(root, RIGHT_X, RIGHT_Y, RIGHT_W);
-  cardLayout();
+  Names::build(root, s_nameCount, s_name);
+  Menu::build(root);
 
   // A page rebuilt under an open window opens it again: the mark keeps the
   // state it was left in.
@@ -395,29 +124,24 @@ void build(lv_obj_t *root) {
     s_focus = kSettings;
   }
   if (s_focus == kSettings) {
-    popupOpen();
+    openPopup();
   } else {
     rightShow();
   }
 }
 
 void free(void) {
-  Spring::stop(&s_scroll);
-  if (s_popup != NULL) {
-    lv_obj_delete(s_popup);
-    s_popup = NULL;
-  }
-  s_right.drop();
-  s_root = NULL;
-  s_thumb = NULL;
+  Names::stop();
+  Popup::close();
+  Menu::drop();
+  Names::drop();
+  s_root = nullptr;
 }
 
 void layout(void) {
-  cardLayout();
+  Names::layout();
   rightShow();
-  if (s_popup != NULL) {
-    lv_obj_move_foreground(s_popup);
-  }
+  Popup::foreground();
 }
 
 void move(int step) {
@@ -427,8 +151,10 @@ void move(int step) {
     if (target < 0 || target >= s_nameCount) {
       return;
     }
-    Spring::run(&s_scroll, Spring::CARDS, s_scroll, s_scroll + (float)step,
-                cardScrolled, cardArrived);
+    Names::slide(step, [](uint8_t index) {
+      s_name = index;
+      rightShow();
+    });
     break;
   }
   case kMenu: {
@@ -436,8 +162,8 @@ void move(int step) {
     if (row < 0) {
       row = 0;
     }
-    if (row >= MENU_ROWS) {
-      row = MENU_ROWS - 1;
+    if (row >= Data::kMenuRows) {
+      row = Data::kMenuRows - 1;
     }
     const int was = s_offset;
     s_row = row;
@@ -445,8 +171,8 @@ void move(int step) {
     if (s_row < s_offset) {
       s_offset = s_row;
     }
-    if (s_row >= s_offset + RIGHT_ROWS) {
-      s_offset = s_row - RIGHT_ROWS + 1;
+    if (s_row >= s_offset + kRightRows) {
+      s_offset = s_row - kRightRows + 1;
     }
     if (s_offset != was) {
       rightScroll(step);
@@ -458,9 +184,9 @@ void move(int step) {
   case kSettings: {
     int row = s_setting + step;
     if (row < 0) {
-      row = SETTING_ROWS - 1;
+      row = Data::kSettingRows - 1;
     }
-    if (row >= SETTING_ROWS) {
+    if (row >= Data::kSettingRows) {
       row = 0;
     }
     s_setting = row;
@@ -468,10 +194,7 @@ void move(int step) {
     break;
   }
   case kValue: {
-    int count = 0;
-    while (count < 4 && VALUES[s_setting][count][0] != '\0') {
-      ++count;
-    }
+    const int count = (int)Data::valueCount((uint8_t)s_setting);
     int row = s_valueRow + step;
     if (row < 0) {
       row = 0;
@@ -486,117 +209,14 @@ void move(int step) {
   }
 }
 
-// ── the window over the middle ──
-
-// Draws the window for the state the mark is in: the settings of the profile,
-// or the values one of them offers.
-static void popupShow(void) {
-  if (s_popup == NULL) {
-    return;
-  }
-
-  if (s_focus == kValue) {
-    lv_label_set_text(s_popupTitle, SETTINGS[s_setting]);
-  } else {
-    lv_label_set_text(s_popupTitle, "OPTIONS");
-  }
-
-  char lines[RIGHT_ROWS][2][40] = {};
-  const bool values = s_focus == kValue;
-  listBlock(lines, values, 0);
-
-  for (int i = 0; i < RIGHT_ROWS; ++i) {
-    const bool used = lines[i][1][0] != '\0';
-    const int mark = values ? s_valueRow : s_setting;
-    const bool on = used && i == mark;
-
-    // A list of settings carries the key at the left and the value it holds
-    // at the right; a list of values has no key, so the value takes the line.
-    lv_obj_set_x(s_popupRow[i], values ? (lv_coord_t)POP_NAME
-                                       : (lv_coord_t)(POP_W - POP_PAD -
-                                                      POP_VALUE));
-    lv_obj_set_width(s_popupRow[i],
-                     values ? (lv_coord_t)(POP_W - POP_NAME - POP_PAD)
-                            : POP_VALUE);
-    lv_obj_set_style_text_align(
-        s_popupRow[i], values ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_RIGHT, 0);
-    lv_label_set_text(s_popupRow[i], used ? lines[i][1] : "");
-    lv_obj_set_style_text_color(s_popupRow[i],
-                                colour(on ? Theme::ACCENT : Theme::TEXT), 0);
-
-    lv_label_set_text(s_popupName[i], values ? "" : lines[i][0]);
-    lv_obj_set_style_text_color(s_popupName[i],
-                                colour(on ? Theme::ACCENT : Theme::MUTED), 0);
-
-    lv_label_set_text(s_popupMark[i], on ? (values ? "*" : ">") : "");
-    lv_obj_set_style_text_color(s_popupMark[i],
-                                colour(on ? Theme::ACCENT : Theme::MUTED), 0);
-
-    lv_obj_t *parts[3] = {s_popupRow[i], s_popupName[i], s_popupMark[i]};
-    for (lv_obj_t *part : parts) {
-      if (used) {
-        lv_obj_remove_flag(part, LV_OBJ_FLAG_HIDDEN);
-      } else {
-        lv_obj_add_flag(part, LV_OBJ_FLAG_HIDDEN);
-      }
-    }
-  }
-}
-
-// Opens the window on the settings of the profile the menu is showing.
-static void popupOpen(void) {
-  if (s_popup != NULL) {
-    return;
-  }
-
-  s_popup = lv_obj_create(s_root);
-  lv_obj_remove_style_all(s_popup);
-  lv_obj_set_pos(s_popup, POP_X, POP_Y);
-  lv_obj_set_size(s_popup, POP_W, POP_H);
-  fill(s_popup, Theme::SURFACE);
-  lv_obj_set_style_radius(s_popup, 10, 0);
-  lv_obj_set_style_border_color(s_popup, colour(Theme::BORDER), 0);
-  lv_obj_set_style_border_width(s_popup, 1, 0);
-  lv_obj_remove_flag(s_popup, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_remove_flag(s_popup, LV_OBJ_FLAG_SCROLLABLE);
-
-  s_popupTitle = text(s_popup, "OPTIONS", &lv_font_montserrat_12, Theme::MUTED,
-                      POP_PAD, 10, POP_W - 2 * POP_PAD);
-  for (int i = 0; i < RIGHT_ROWS; ++i) {
-    s_popupMark[i] = text(s_popup, "", &lv_font_montserrat_12, Theme::MUTED,
-                          POP_PAD, POP_ROW + 1 + i * POP_STEP, 10);
-    s_popupName[i] = text(s_popup, "", &lv_font_montserrat_12, Theme::MUTED,
-                          POP_NAME, POP_ROW + i * POP_STEP,
-                          POP_W - POP_NAME - POP_PAD - POP_VALUE);
-    s_popupRow[i] = text(s_popup, "", &lv_font_montserrat_14, Theme::TEXT,
-                         POP_W - POP_PAD - POP_VALUE, POP_ROW + i * POP_STEP,
-                         POP_VALUE);
-    lv_obj_set_style_text_align(s_popupRow[i], LV_TEXT_ALIGN_RIGHT, 0);
-  }
-
-  s_setting = 0;
-  s_focus = kSettings;
-  popupShow();
-  rightShow();
-}
-
-static void popupClose(void) {
-  if (s_popup != NULL) {
-    lv_obj_delete(s_popup);
-    s_popup = NULL;
-  }
-}
-
-// ── the mark ──
-
 void enter(void) {
   switch (s_focus) {
   case kNames:
-    if (isPlus((uint8_t)s_name)) {
+    if (Data::isPlus((uint8_t)s_name)) {
       // A profile is made from this card, which is the link's work.
       return;
     }
-    if (isFactory((uint8_t)s_name)) {
+    if (Data::isFactory((uint8_t)s_name)) {
       // The factory profile is read-only: it opens nothing.
       return;
     }
@@ -608,17 +228,17 @@ void enter(void) {
     break;
   case kMenu:
     // OPTIONS opens the window; the other lines have nothing behind them yet.
-    if (s_row == MENU_OPTIONS) {
-      popupOpen();
+    if (s_row == Data::kMenuOptions) {
+      openPopup();
     }
     break;
   case kSettings:
-    s_valueRow = s_valuePick[s_setting] < 4 ? s_valuePick[s_setting] : 0;
+    s_valueRow = Data::valuePick((uint8_t)s_setting);
     s_focus = kValue;
     popupShow();
     break;
   case kValue:
-    s_valuePick[s_setting] = (uint8_t)s_valueRow;
+    Data::setValuePick((uint8_t)s_setting, (uint8_t)s_valueRow);
     s_focus = kSettings;
     popupShow();
     break;
@@ -632,11 +252,11 @@ bool leave(void) {
     popupShow();
     return true;
   case kSettings:
-    popupClose();
+    Popup::close();
     s_focus = kMenu;
     s_offset = 0;
-    if (s_row >= RIGHT_ROWS) {
-      s_offset = s_row - RIGHT_ROWS + 1;
+    if (s_row >= kRightRows) {
+      s_offset = s_row - kRightRows + 1;
     }
     rightShow();
     return true;

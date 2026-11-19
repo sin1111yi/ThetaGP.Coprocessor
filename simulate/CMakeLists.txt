@@ -97,6 +97,10 @@ add_executable(simulate
   ../main/ui/pages/pages.cpp
   ../main/ui/pages/profiles.cpp
   ../main/ui/profile/profile.cpp
+  ../main/ui/profile/profile_data.cpp
+  ../main/ui/profile/profile_menu.cpp
+  ../main/ui/profile/profile_names.cpp
+  ../main/ui/profile/profile_popup.cpp
   ../main/ui/splash.cpp
   ../main/ui/spring.cpp
   ../main/ui/widgets/column.cpp
@@ -125,6 +129,10 @@ add_executable(compare
   ../main/ui/pages/pages.cpp
   ../main/ui/pages/profiles.cpp
   ../main/ui/profile/profile.cpp
+  ../main/ui/profile/profile_data.cpp
+  ../main/ui/profile/profile_menu.cpp
+  ../main/ui/profile/profile_names.cpp
+  ../main/ui/profile/profile_popup.cpp
   ../main/ui/splash.cpp
   ../main/ui/spring.cpp
   ../main/ui/widgets/column.cpp
