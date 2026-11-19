@@ -17,3 +17,6 @@ sdkconfig.old
 
 # Working notes, not part of the repository
 docs/
+
+# The agent's own working directory, not part of the repository
+.claude/
