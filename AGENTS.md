@@ -1,8 +1,8 @@
 # AGENTS.md
 
 ESP32-S3 firmware (ESP-IDF) for the ThetaGP panel. Two independent builds share
-`main/ui/menu.cpp`: the firmware, and a host simulator used for fast visual
-checks without hardware.
+the sources under `main/ui/`: the firmware, and a host simulator used for fast
+visual checks without hardware.
 
 ## Build and run
 
@@ -31,34 +31,52 @@ Simulator (no hardware; use this to verify UI changes):
 
 ## Architecture
 
-- Entry: `main/main.cpp` `app_main` → `Coprocessor::setup()` then `run()`.
-  `setup` inits `LvglDisplay` (which brings up `Nv3007Lcd` and starts
-  `esp_lvgl_adapter`) → `Ui::Menu::init()` and seeds the model. The adapter
-  owns the LVGL task, tick and lock; `run` is the protocol loop, paced by a
-  10 ms `esp_timer`, and touches widgets only under `esp_lv_adapter_lock`.
+- Layout, and the only way a layer may look: `app/` → `protocol/` → `ui/`,
+  with `app/` → `drivers/`. `ui/` includes neither `protocol/` nor `drivers/`;
+  `protocol/` sits above both because it reads the menu and reports the panel.
+  - `main/app/` — `Coprocessor.{h,cpp}`: boot order, the protocol loop, the
+    board button turned into menu actions.
+  - `main/protocol/` — `panel_protocol.{h,cpp}`, the messages of `ThetaGP.PB`.
+  - `main/ui/` — `model.{h,cpp}` (what the protocol writes and the pages
+    read), `menu.{h,cpp}` (page stack and navigation), `splash.{h,cpp}`,
+    `theme.h`, `spring.{h,cpp}`, `pages/` (one file a page plus `pages.h`),
+    `profile/` (the profile level: `profile_data`, `profile_names`,
+    `profile_menu`, `profile_popup`, `profile`), `widgets/` (`column`),
+    `assets/` (`logo`).
+  - `main/drivers/` — `display/` (`lvgl_display`, `nv3007_lcd`,
+    `nv3007_init`), `input/` (`button`), `link/` (`link`, `frame`).
+- Entry: `main/main.cpp` `app_main` → `app/Coprocessor.{h,cpp}`: `setup()`
+  then `run()`. `setup` inits `LvglDisplay` (which brings up `Nv3007Lcd` and
+  starts `esp_lvgl_adapter`) → `Ui::Menu::init()` and seeds the model. The
+  adapter owns the LVGL task, tick and lock; `run` is the protocol loop, paced
+  by a 10 ms `esp_timer`, and touches widgets only under `esp_lv_adapter_lock`.
 - `main/drivers/display/nv3007_lcd.cpp` is a hand-written `esp_lcd` panel for
-  the NV3007: its power-up sequence plus window-and-write. The adapter already
+  the NV3007: window-and-write over the power-up sequence in
+  `nv3007_init.{h,cpp}`, which is a table and nothing else. The adapter already
   byte-swaps RGB565 and passes exclusive end coordinates to `draw_bitmap`; do
   not swap again in the driver.
 - `main/conf/board.h` holds the panel pins and sizes. Native panel is 156x428,
   mounted sideways; MADCTL (`0x36 = 0x60`, last step of the init sequence)
   turns it so the UI surface is 428x156. The adapter does not rotate SPI
   panels, so do not use `lv_display_set_rotation`.
-- `main/ui/menu.h` `Model` is the seam for the `ThetaGP.PB` protocol, which is
+- `main/ui/model.h` `Model` is the seam for the `ThetaGP.PB` protocol, which is
   **not wired in yet**. Protocol code should call the `Menu::set*` / navigation
-  functions rather than touch widgets.
+  functions rather than touch widgets; a setter that really changes a value
+  brings the screen up to date through `Menu::refresh()`, the one place that
+  decides whether the page is repainted in place or rebuilt.
 - `main/ui/spring.h` is the one place a damped ("springy") animation comes
   from. A page calls `Spring::run(key, tuning, from, to, apply, done)`; the
   position at each frame is `1 - e^(-decay t)(cos(omega t) + decay/omega
   sin(omega t))` and nothing else. Tunings (`Spring::CARDS`, `Spring::COLUMN`)
   live in that header; do not write another easing curve in a page.
-- `simulate/` is a separate CMake project that compiles the real
-  `../main/ui/menu.cpp`. ESP-IDF calls are satisfied by stubs in
-  `simulate/include/driver/`; `gpio_get_level` always returns idle, so the board
-  button does nothing there — keyboard drives navigation.
+- `simulate/` is a separate CMake project that compiles the real `../main/ui/`
+  sources. ESP-IDF calls are satisfied by stubs in `simulate/include/driver/`;
+  `gpio_get_level` always returns idle, so the board button does nothing there
+  — keyboard drives navigation.
 - The simulator draws straight into SDL and never compiles
-  `nv3007_lcd.cpp` / `lvgl_display.cpp`; it validates the UI, not the SPI
-  panel driver or the adapter (including the RGB565 byte swap).
+  `nv3007_lcd.cpp` / `lvgl_display.cpp` / `button.cpp` / `link.cpp`; it
+  validates the UI, not the SPI panel driver, the adapter (including the RGB565
+  byte swap) or the wire.
 
 ## Dependencies
 
@@ -97,17 +115,23 @@ Simulator (no hardware; use this to verify UI changes):
 
 - `main/CMakeLists.txt` lists every source explicitly. New firmware `.cpp` files
   must be added to `SRCS` or they will not build.
-- The simulator only compiles `simulate/main_sim.cpp`, `../main/ui/menu.cpp`
-  and `../main/ui/logo.c`. Shared code pulled in by `menu.cpp` must also be
-  added to `simulate/CMakeLists.txt`, with stubs under `simulate/include/` for
-  any ESP-IDF headers.
+- `simulate/CMakeLists.txt` names every `../main/ui/` source for both of its
+  targets (`simulate`, `compare`). New UI code must be added there too, with
+  stubs under `simulate/include/` for any ESP-IDF header it reaches.
 
 ## Conventions
 
 - Every source file begins with the GPLv3 comment header; new files should too.
 - C++17, 2-space indent, ~80 columns, namespaces under `ThetaGP::`
   (`Drivers::Display`, `Ui`, `Ui::Theme`).
-- No tests, linter, formatter config, or CI exist. Verification means building
-  the simulator and, when possible, the firmware.
+- No linter, formatter config or CI exists. Verification is three builds and
+  two host programs:
+  - `cmake --preset esp32s3` + `--build`, and `simulate`'s build;
+  - `simulate/build/compare` prints one frame hash a step of a fixed script.
+    To compare a refactor, build the same program against another commit
+    (`git worktree add`) and diff the two outputs: identical output is the
+    claim that the picture did not change;
+  - `simulate/build/frame_test` checks the link's framing: a payload written
+    and read back, and the frames that must be refused.
 - Commit history follows Conventional Commits (`feat:`, `build:`, `refactor:`,
   `docs:`, `chore:`, with optional scopes).
