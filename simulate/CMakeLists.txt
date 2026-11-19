@@ -88,8 +88,16 @@ add_executable(simulate
   main_sim.cpp
   ../main/ui/assets/logo.c
   ../main/ui/menu.cpp
+  ../main/ui/model.cpp
+  ../main/ui/pages/about.cpp
   ../main/ui/pages/home.cpp
+  ../main/ui/pages/mapping.cpp
+  ../main/ui/pages/monitor.cpp
+  ../main/ui/pages/options.cpp
+  ../main/ui/pages/pages.cpp
+  ../main/ui/pages/profiles.cpp
   ../main/ui/profile/profile.cpp
+  ../main/ui/splash.cpp
   ../main/ui/spring.cpp
   ../main/ui/widgets/column.cpp
 )
@@ -108,8 +116,16 @@ add_executable(compare
   compare.cpp
   ../main/ui/assets/logo.c
   ../main/ui/menu.cpp
+  ../main/ui/model.cpp
+  ../main/ui/pages/about.cpp
   ../main/ui/pages/home.cpp
+  ../main/ui/pages/mapping.cpp
+  ../main/ui/pages/monitor.cpp
+  ../main/ui/pages/options.cpp
+  ../main/ui/pages/pages.cpp
+  ../main/ui/pages/profiles.cpp
   ../main/ui/profile/profile.cpp
+  ../main/ui/splash.cpp
   ../main/ui/spring.cpp
   ../main/ui/widgets/column.cpp
 )
