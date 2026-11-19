@@ -218,23 +218,17 @@ bool Frame::halfFrame(void) const { return _state != State::Prefix; }
 
 uint16_t Frame::declaredLength(void) const { return _length; }
 
-void Frame::selfCheck(void) {
+bool Frame::selfCheck(void) {
   const uint8_t sample[] = {0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x7F, 0x80};
   uint8_t framed[FRAME_MAX] = {};
   const uint16_t size = encode(sample, sizeof sample, framed, sizeof framed);
   if (size == 0) {
-    printf("link: codec broken (encode)\n");
-    return;
+    return false;
   }
 
-  uint16_t sum = 0;
-  for (uint16_t i = 0; i < sizeof sample; ++i) {
-    sum = static_cast<uint16_t>(sum + sample[i]);
-  }
-  const bool ok = framed[0] == sizeof sample &&
-                  framed[size - 1] == (sum >> 8) &&
-                  framed[size - 2] == (sum & 0xFF);
-  printf("link: codec %s\n", ok ? "ok" : "broken");
+  const uint16_t sum = checksum(sample, sizeof sample);
+  return framed[0] == sizeof sample && framed[size - 1] == (sum >> 8) &&
+         framed[size - 2] == (sum & 0xFF);
 }
 
 } // namespace ThetaGP::Wire

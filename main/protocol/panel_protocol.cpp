@@ -28,6 +28,7 @@
 
 #include "build_info.h"
 #include "ui/menu.h"
+#include "utils/log/log.h"
 
 #include "Link.pb.h"
 #include "pb_decode.h"
@@ -110,7 +111,7 @@ bool PanelProtocol::send(const ThetaGP_Link_Message &message) {
   uint8_t payload[kPayloadMax] = {};
   pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
   if (!pb_encode(&stream, ThetaGP_Link_Message_fields, &message)) {
-    printf("link: encode refused: %s\n", PB_GET_ERROR(&stream));
+    LOG_ERROR("link: encode refused: %s", PB_GET_ERROR(&stream));
     return false;
   }
   return _transport.send(payload, static_cast<uint16_t>(stream.bytes_written),
@@ -172,7 +173,7 @@ void PanelProtocol::apply() {
     // changed is worth a line.
     if (std::strcmp(_inbox.boardId, Ui::model().peer_id) != 0 ||
         std::strcmp(_inbox.release, Ui::model().peer_version) != 0) {
-      printf("link: board %s %s\n", _inbox.boardId, _inbox.release);
+      LOG_INFO("link: board %s %s", _inbox.boardId, _inbox.release);
     }
     Ui::Menu::setPeer(_inbox.boardId, _inbox.release);
   }

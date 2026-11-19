@@ -39,6 +39,7 @@
 #include "drivers/link/link.h"
 #include "protocol/panel_protocol.h"
 #include "ui/menu.h"
+#include "utils/log/log.h"
 #include "wire/frame.h"
 
 namespace ThetaGP {
@@ -87,12 +88,16 @@ const Protocol::Panel kPanel = {panelWidth, panelHeight, backlightOn, nullptr};
 } // namespace
 
 void Coprocessor::setup() {
+  // The console is where every line of this board goes: the logger is opened
+  // before anything else has something to say.
+  Log::init();
+
   // The display brings the panel up and starts the LVGL task the adapter owns.
   Drivers::Display::LvglDisplay::getInstance().init();
   if (Drivers::Display::LvglDisplay::getInstance().handle() == nullptr) {
     // A panel that did not come up is not something to idle behind: the
     // reason is already on the console, and the board tries again.
-    printf("coprocessor: no display, restarting\n");
+    LOG_ERROR("coprocessor: no display, restarting");
     vTaskDelay(pdMS_TO_TICKS(2000));
     esp_restart();
   }

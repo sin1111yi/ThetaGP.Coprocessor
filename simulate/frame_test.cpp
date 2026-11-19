@@ -214,6 +214,8 @@ int main() {
     check(frame.take(out) && out.length == 300, "the second one");
   }
 
+  check(Frame::selfCheck(), "the codec agrees with itself");
+
   std::printf("frame: %d checks, %d failed\n", s_checked, s_failed);
   return s_failed == 0 ? 0 : 1;
 }

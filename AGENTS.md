@@ -55,6 +55,7 @@ Simulator (no hardware; use this to verify UI changes):
   - `main/drivers/` — `display/` (`lvgl_display`, `nv3007_lcd`,
     `nv3007_init`), `input/` (`button`), `link/` (`link`: the UART, the ready
     line, the task that reads it).
+  - `main/utils/log/` — the logger every line goes through.
 - Entry: `main/main.cpp` `app_main` → `app/Coprocessor.{h,cpp}`: `setup()`
   then `run()`. `setup` inits `LvglDisplay` (which brings up `Nv3007Lcd` and
   starts `esp_lvgl_adapter`) → `Ui::Menu::init()` and seeds the model. The
@@ -91,6 +92,15 @@ Simulator (no hardware; use this to verify UI changes):
   two `frame` files are the same state machine; keep them that way, and keep
   the one difference the coprocessor has on purpose: a zero-length payload is
   dropped (`Drop::Length`) because an idle line reads as zeroes.
+- `main/utils/log/log.h` is the one way a line leaves the board: `LOG_INFO`,
+  `LOG_WARN`, `LOG_ERROR` (and `LOG_DEBUG`, compiled in only with
+  `THETAGP_LOG_DEBUG`), a threshold `setLevel` moves, and a ring of the last 16
+  lines with `total()` / `read()`. It writes `[LEVEL][file:line]: message`
+  through one sink, the console by default. Two tasks write lines, so the ring
+  and the sink are taken one line at a time under a mutex — **never log from an
+  ISR**, and keep a line short (the ring keeps 95 characters of it). `wire/`
+  writes nothing: `Frame::selfCheck()` answers, and the caller logs what it
+  found.
 - `main/ui/model.h` `Model` is the seam for the `ThetaGP.PB` protocol, which is
   **not wired in yet**. Protocol code should call the `Menu::set*` / navigation
   functions rather than touch widgets; a setter that really changes a value

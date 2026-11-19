@@ -48,6 +48,7 @@ idf_component_register(
          "ui/splash.cpp"
          "ui/spring.cpp"
          "ui/widgets/column.cpp"
+         "utils/log/log.cpp"
          "wire/dispatch.cpp"
          "wire/frame.cpp"
     INCLUDE_DIRS "." "pb" "${THETAGP_NANOPB_DIR}"

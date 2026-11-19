@@ -27,6 +27,7 @@
 #include "drivers/display/nv3007_lcd.h"
 
 #include "esp_lv_adapter.h"
+#include "utils/log/log.h"
 
 namespace ThetaGP::Drivers::Display {
 
@@ -41,7 +42,7 @@ void LvglDisplay::init() {
   // one, and the frame queue is the only thing between them.
   config.task_core_id = 0;
   if (esp_lv_adapter_init(&config) != ESP_OK) {
-    printf("nv3007: no adapter\n");
+    LOG_ERROR("nv3007: no adapter");
     return;
   }
 
@@ -52,16 +53,16 @@ void LvglDisplay::init() {
           LCD_V_RES, LCD_H_RES, ESP_LV_ADAPTER_ROTATE_0);
   _display = esp_lv_adapter_register_display(&display);
   if (_display == nullptr) {
-    printf("nv3007: no display\n");
+    LOG_ERROR("nv3007: no display");
     return;
   }
 
   if (esp_lv_adapter_start() != ESP_OK) {
-    printf("nv3007: adapter did not start\n");
+    LOG_ERROR("nv3007: adapter did not start");
     _display = nullptr;
     return;
   }
-  printf("nv3007: %dx%d ready\n", LCD_V_RES, LCD_H_RES);
+  LOG_INFO("nv3007: %dx%d ready", LCD_V_RES, LCD_H_RES);
 }
 
 } // namespace ThetaGP::Drivers::Display

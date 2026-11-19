@@ -25,6 +25,7 @@
 
 #include "conf/board.h"
 #include "drivers/display/nv3007_init.h"
+#include "utils/log/log.h"
 
 #include "driver/gpio.h"
 #include "esp_lcd_panel_interface.h"
@@ -134,7 +135,7 @@ esp_err_t panelSleep(esp_lcd_panel_t *panel, bool sleep) {
 void Nv3007Lcd::backlight(bool on) {
   _backlightOn = on;
   gpio_set_level(PIN_LCD_BLK, on ? 1 : 0);
-  printf("panel: backlight %s\n", on ? "on" : "off");
+  LOG_INFO("panel: backlight %s", on ? "on" : "off");
 }
 
 void Nv3007Lcd::init() {
@@ -164,8 +165,8 @@ void Nv3007Lcd::init() {
   esp_err_t made = esp_lcd_new_panel_io_spi(
       static_cast<esp_lcd_spi_bus_handle_t>(LCD_SPI_HOST), &io, &_io);
   // The bus divides its own clock down to the nearest rate at or under this.
-  printf("nv3007: io %s (%d), %u Hz asked\n", esp_err_to_name(made),
-         (int)made, (unsigned)LCD_SPI_HZ);
+  LOG_INFO("nv3007: io %s (%d), %u Hz asked", esp_err_to_name(made), (int)made,
+           (unsigned)LCD_SPI_HZ);
   if (made != ESP_OK) {
     return;
   }
@@ -195,7 +196,7 @@ void Nv3007Lcd::init() {
     const esp_err_t sent =
         esp_lcd_panel_io_tx_param(_io, step.reg, step.data, step.count);
     if (sent != ESP_OK) {
-      printf("nv3007: command %02x refused: %s\n", step.reg,
+      LOG_ERROR("nv3007: command %02x refused: %s", step.reg,
              esp_err_to_name(sent));
       _panel = nullptr;
       return;

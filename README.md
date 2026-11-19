@@ -74,17 +74,20 @@ python3 $IDF_PATH/tools/idf.py -B build/esp32s3-release -p /dev/ttyACM2 monitor
 A board that came up right says, in this order:
 
 ```
-nv3007: io ESP_OK (0), 60000000 Hz asked
-I (1149) esp_lvgl:adapter: LVGL adapter initialized successfully
-I (1172) esp_lvgl:adapter: LVGL task started successfully
-nv3007: 428x156 ready
-panel: backlight on
-link: codec ok
-link: loopback ok (7/7 B)
-link: uart1 4000000 baud, tx 4 rx 5
-link: ready
-link: board BoringTechH743 0.3.0
+[INFO ][nv3007_lcd.cpp:168]: nv3007: io ESP_OK (0), 60000000 Hz asked
+[INFO ][lvgl_display.cpp:65]: nv3007: 428x156 ready
+[INFO ][nv3007_lcd.cpp:138]: panel: backlight on
+[INFO ][link.cpp:80]: link: codec ok
+[INFO ][link.cpp:95]: link: loopback ok (7/7 B)
+[INFO ][link.cpp:102]: link: uart1 4000000 baud, tx 4 rx 5
+[INFO ][link.cpp:112]: link: ready
+[INFO ][panel_protocol.cpp:176]: link: board BoringTechH743 0.3.0
 ```
+
+The `I (…) esp_lvgl:adapter` lines between them are the adapter's own, through
+ESP-IDF's logger. Everything this firmware says goes through `utils/log`: a
+level, the file and line, and the message, with the last 16 lines kept so a
+port opened late still shows them.
 
 `link: board …` is the main board answering its greeting: the whole path —
 UART, framing, decode, dispatch, the model — is working. The panel driver and
@@ -142,6 +145,7 @@ main/
                       panel seams the app fills in
   ui/                 model, menu, splash, theme, spring, pages/, profile/,
                       widgets/, assets/
+  utils/log/          the logger: levels, a threshold, and the last lines kept
   drivers/            display/ (esp_lcd panel, its sequence, the adapter),
                       input/ (the board button), link/ (the UART and its task)
 ```

@@ -91,9 +91,10 @@ public:
   static uint16_t encode(const uint8_t *payload, uint16_t length, uint8_t *out,
                          uint16_t capacity);
 
-  // Proves the two directions of the framing agree and prints the one line the
-  // boot log carries: a link that never answers should be a wire, not a codec.
-  static void selfCheck(void);
+  // Proves the two directions of the framing agree: a link that never answers
+  // should be a wire, not a codec. It writes nothing, so a page of the log or a
+  // desk test can say what it found.
+  static bool selfCheck(void);
 
   // ── the receive side ──
 

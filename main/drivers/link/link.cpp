@@ -32,6 +32,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "utils/log/log.h"
+
 namespace ThetaGP::Drivers::Link {
 
 namespace {
@@ -75,7 +77,7 @@ void Link::init() {
   ESP_ERROR_CHECK(gpio_config(&ready));
   gpio_set_level(PIN_LINK_READY, 0);
 
-  Wire::Frame::selfCheck();
+  LOG_INFO("link: codec %s", Wire::Frame::selfCheck() ? "ok" : "broken");
 
   // The pins looped inside the peripheral: the frame this end writes has to
   // come back byte for byte, which separates the wire from the code.
@@ -90,15 +92,15 @@ void Link::init() {
   const int heard = uart_read_bytes(kPort, echo, size, pdMS_TO_TICKS(100));
   uart_set_loop_back(kPort, false);
   uart_flush_input(kPort);
-  printf("link: loopback %s (%d/%d B)\n",
-         (heard == (int)size && memcmp(echo, framed, size) == 0) ? "ok"
-                                                                 : "failed",
-         heard, (int)size);
+  LOG_INFO("link: loopback %s (%d/%d B)",
+           (heard == (int)size && memcmp(echo, framed, size) == 0) ? "ok"
+                                                                  : "failed",
+           heard, (int)size);
 
   xTaskCreatePinnedToCore(taskEntry, "link", kStack, this, kPriority, nullptr,
                           kCore);
-  printf("link: uart1 %d baud, tx %d rx %d\n", LINK_BAUD, PIN_LINK_TX,
-         PIN_LINK_RX);
+  LOG_INFO("link: uart1 %d baud, tx %d rx %d", LINK_BAUD, PIN_LINK_TX,
+           PIN_LINK_RX);
 }
 
 void Link::markReady() {
@@ -107,7 +109,7 @@ void Link::markReady() {
   }
   gpio_set_level(PIN_LINK_READY, 1);
   _readyLine = true;
-  printf("link: ready\n");
+  LOG_INFO("link: ready");
 }
 
 void Link::taskEntry(void *argument) { static_cast<Link *>(argument)->run(); }
@@ -124,8 +126,8 @@ void Link::run() {
     // A line that carried nothing but noise says so once, when it first does.
     if (_frame.droppedFrames() != 0 && _frame.droppedFrames() != reported) {
       reported = _frame.droppedFrames();
-      printf("link: %u frames refused, %u B seen\n", (unsigned)reported,
-             (unsigned)_bytesRead);
+      LOG_WARN("link: %u frames refused, %u B seen", (unsigned)reported,
+               (unsigned)_bytesRead);
     }
 
     const int read = uart_read_bytes(kPort, chunk, sizeof chunk,
